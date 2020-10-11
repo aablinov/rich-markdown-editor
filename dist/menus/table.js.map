@@ -1,0 +1,1 @@
+{"version":3,"file":"table.js","sourceRoot":"","sources":["../../src/menus/table.tsx"],"names":[],"mappings":"AAAA,OAAO,EAAE,SAAS,EAAE,MAAM,eAAe,CAAC;AAI1C,MAAM,CAAC,OAAO,UAAU,cAAc,CACpC,UAAiC;IAEjC,OAAO;QACL;YACE,IAAI,EAAE,aAAa;YACnB,OAAO,EAAE,UAAU,CAAC,WAAW;YAC/B,IAAI,EAAE,SAAS;YACf,MAAM,EAAE,GAAG,EAAE,CAAC,KAAK;SACpB;KACF,CAAC;AACJ,CAAC"}

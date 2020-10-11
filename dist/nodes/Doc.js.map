@@ -1,0 +1,1 @@
+{"version":3,"file":"Doc.js","sourceRoot":"","sources":["../../src/nodes/Doc.ts"],"names":[],"mappings":"AAAA,OAAO,IAAI,MAAM,QAAQ,CAAC;AAE1B,MAAM,CAAC,OAAO,OAAO,GAAI,SAAQ,IAAI;IACnC,IAAI,IAAI;QACN,OAAO,KAAK,CAAC;IACf,CAAC;IAED,IAAI,MAAM;QACR,OAAO;YACL,OAAO,EAAE,QAAQ;SAClB,CAAC;IACJ,CAAC;CACF"}
