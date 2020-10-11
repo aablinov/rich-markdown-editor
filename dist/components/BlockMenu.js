@@ -175,6 +175,9 @@ class BlockMenu extends React.Component {
                     dictionary: this.props.dictionary,
                 });
             }
+            if (this.inputRef.current) {
+                this.inputRef.current.value = "";
+            }
             this.props.onClose();
         };
     }
