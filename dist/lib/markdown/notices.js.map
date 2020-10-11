@@ -1,0 +1,1 @@
+{"version":3,"file":"notices.js","sourceRoot":"","sources":["../../../src/lib/markdown/notices.ts"],"names":[],"mappings":"AAAA,OAAO,WAAW,MAAM,uBAAuB,CAAC;AAEhD,MAAM,CAAC,OAAO,UAAU,MAAM,CAAC,EAAE;IAC/B,OAAO,WAAW,CAAC,EAAE,EAAE,QAAQ,EAAE;QAC/B,MAAM,EAAE,GAAG;QACX,QAAQ,EAAE,GAAG,EAAE,CAAC,IAAI;KACrB,CAAC,CAAC;AACL,CAAC"}
