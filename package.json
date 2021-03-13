@@ -1,5 +1,5 @@
 {
-  "name": "rich-markdown-editor",
+  "name": "@andreyblinov/rich-markdown-editor",
   "description": "A rich text editor with Markdown shortcuts",
   "version": "11.4.1",
   "main": "dist/index.js",
