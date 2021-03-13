@@ -69,6 +69,7 @@ import Placeholder from "./plugins/Placeholder";
 import SmartText from "./plugins/SmartText";
 import TrailingNode from "./plugins/TrailingNode";
 import MarkdownPaste from "./plugins/MarkdownPaste";
+import Spoiler from "./nodes/Spoiler";
 
 export { schema, parser, serializer } from "./server";
 
@@ -338,6 +339,9 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
         }),
         new MaxLength({
           maxLength: this.props.maxLength,
+        }),
+        new Spoiler({
+          dictionary,
         }),
         ...this.props.extensions,
       ],

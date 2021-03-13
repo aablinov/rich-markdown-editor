@@ -138,5 +138,12 @@ export default function blockMenuItems(
       keywords: "container_notice card suggestion",
       attrs: { style: "tip" },
     },
+    {
+      name: "container_spoiler",
+      title: "Spoiler",
+      icon: StarredIcon,
+      keywords: "container_spoiler card suggestion",
+      attrs: { style: "tip" },
+    },
   ];
 }
