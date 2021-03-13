@@ -1,4 +1,6 @@
 import { EditorView } from "prosemirror-view";
+import baseDictionary from "../dictionary";
+import { ToastType } from "../types";
 
 function findPlaceholderLink(doc, href) {
   let result;
@@ -35,6 +37,7 @@ const createAndInsertLink = async function(
   title: string,
   href: string,
   options: {
+    dictionary: typeof baseDictionary;
     onCreateLink: (title: string) => Promise<string>;
     onShowToast?: (message: string, code: string) => void;
   }
@@ -63,7 +66,7 @@ const createAndInsertLink = async function(
     );
   } catch (err) {
     const result = findPlaceholderLink(view.state.doc, href);
-if (!result) return;
+    if (!result) return;
 
     dispatch(
       view.state.tr.removeMark(
@@ -75,10 +78,7 @@ if (!result) return;
 
     // let the user know
     if (onShowToast) {
-      onShowToast(
-        "Sorry, an error occurred creating the link",
-        "link_create_error"
-      );
+      onShowToast(options.dictionary.createLinkError, ToastType.Error);
     }
   }
 };

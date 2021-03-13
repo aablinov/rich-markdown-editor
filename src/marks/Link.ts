@@ -2,6 +2,7 @@ import { toggleMark } from "prosemirror-commands";
 import { Plugin } from "prosemirror-state";
 import { InputRule } from "prosemirror-inputrules";
 import Mark from "./Mark";
+import isModKey from "../lib/isModKey";
 
 const LINK_INPUT_REGEX = /\[(.+)]\((\S+)\)/;
 
@@ -36,7 +37,7 @@ export default class Link extends Mark {
     return {
       attrs: {
         href: {
-          default: null,
+          default: "",
         },
       },
       inclusive: false,
@@ -100,31 +101,46 @@ export default class Link extends Mark {
       new Plugin({
         props: {
           handleDOMEvents: {
-            click: (view, event: MouseEvent) => {
+            mouseover: (view, event: MouseEvent) => {
+              if (
+                event.target instanceof HTMLAnchorElement &&
+                !event.target.className.includes("ProseMirror-widget")
+              ) {
+                if (this.options.onHoverLink) {
+                  return this.options.onHoverLink(event);
+                }
+              }
+              return false;
+            },
+            click: (view, event: KeyboardEvent) => {
               // allow opening links in editing mode with the meta/cmd key
               if (
                 view.props.editable &&
                 view.props.editable(view.state) &&
-                !event.metaKey
+                !isModKey(event)
               ) {
                 return false;
               }
 
               if (event.target instanceof HTMLAnchorElement) {
-                const { href } = event.target;
+                const href =
+                  event.target.href ||
+                  (event.target.parentNode instanceof HTMLAnchorElement
+                    ? event.target.parentNode.href
+                    : "");
 
                 const isHashtag = href.startsWith("#");
                 if (isHashtag && this.options.onClickHashtag) {
                   event.stopPropagation();
                   event.preventDefault();
-                  this.options.onClickHashtag(href);
+                  this.options.onClickHashtag(href, event);
                   return true;
                 }
 
                 if (this.options.onClickLink) {
                   event.stopPropagation();
                   event.preventDefault();
-                  this.options.onClickLink(href);
+                  this.options.onClickLink(href, event);
                   return true;
                 }
               }

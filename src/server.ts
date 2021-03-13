@@ -11,10 +11,12 @@ import CodeFence from "./nodes/CodeFence";
 import CheckboxList from "./nodes/CheckboxList";
 import CheckboxItem from "./nodes/CheckboxItem";
 import Embed from "./nodes/Embed";
+import HardBreak from "./nodes/HardBreak";
 import Heading from "./nodes/Heading";
 import HorizontalRule from "./nodes/HorizontalRule";
 import Image from "./nodes/Image";
 import ListItem from "./nodes/ListItem";
+import Notice from "./nodes/Notice";
 import OrderedList from "./nodes/OrderedList";
 import Paragraph from "./nodes/Paragraph";
 import Table from "./nodes/Table";
@@ -29,10 +31,13 @@ import Highlight from "./marks/Highlight";
 import Italic from "./marks/Italic";
 import Link from "./marks/Link";
 import Strikethrough from "./marks/Strikethrough";
+import TemplatePlaceholder from "./marks/Placeholder";
+import Underline from "./marks/Underline";
 
 const extensions = new ExtensionManager([
   new Doc(),
   new Text(),
+  new HardBreak(),
   new Paragraph(),
   new Blockquote(),
   new BulletList(),
@@ -42,6 +47,7 @@ const extensions = new ExtensionManager([
   new CheckboxItem(),
   new Embed(),
   new ListItem(),
+  new Notice(),
   new Heading(),
   new HorizontalRule(),
   new Image(),
@@ -55,6 +61,8 @@ const extensions = new ExtensionManager([
   new Italic(),
   new Link(),
   new Strikethrough(),
+  new TemplatePlaceholder(),
+  new Underline(),
   new OrderedList(),
 ]);
 

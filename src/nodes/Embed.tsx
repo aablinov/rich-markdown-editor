@@ -1,6 +1,8 @@
 import * as React from "react";
 import Node from "./Node";
 
+const cache = {};
+
 export default class Embed extends Node {
   get name() {
     return "embed";
@@ -10,12 +12,34 @@ export default class Embed extends Node {
     return {
       content: "inline*",
       group: "block",
+      atom: true,
       attrs: {
         href: {},
-        component: {},
         matches: {},
       },
-      parseDOM: [{ tag: "iframe" }],
+      parseDOM: [
+        {
+          tag: "iframe",
+          getAttrs: (dom: HTMLIFrameElement) => {
+            const { embeds } = this.editor.props;
+            const href = dom.getAttribute("src") || "";
+
+            if (embeds) {
+              for (const embed of embeds) {
+                const matches = embed.matcher(href);
+                if (matches) {
+                  return {
+                    href,
+                    matches,
+                  };
+                }
+              }
+            }
+
+            return {};
+          },
+        },
+      ],
       toDOM: node => [
         "iframe",
         { src: node.attrs.href, contentEditable: false },
@@ -25,17 +49,33 @@ export default class Embed extends Node {
   }
 
   component({ isEditable, isSelected, theme, node }) {
-    const Component = node.attrs.component;
+    const { embeds } = this.editor.props;
+
+    // matches are cached in module state to avoid re running loops and regex
+    // here. Unfortuantely this function is not compatible with React.memo or
+    // we would use that instead.
+    let Component = cache[node.attrs.href];
+
+    if (!Component) {
+      for (const embed of embeds) {
+        const matches = embed.matcher(node.attrs.href);
+        if (matches) {
+          Component = cache[node.attrs.href] = embed.component;
+        }
+      }
+    }
+
+    if (!Component) {
+      return null;
+    }
 
     return (
-      <div contentEditable={false}>
-        <Component
-          attrs={node.attrs}
-          isEditable={isEditable}
-          isSelected={isSelected}
-          theme={theme}
-        />
-      </div>
+      <Component
+        attrs={node.attrs}
+        isEditable={isEditable}
+        isSelected={isSelected}
+        theme={theme}
+      />
     );
   }
 
@@ -62,7 +102,6 @@ export default class Embed extends Node {
       getAttrs: token => ({
         href: token.attrGet("href"),
         matches: token.attrGet("matches"),
-        component: token.attrGet("component"),
       }),
     };
   }

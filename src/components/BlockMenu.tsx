@@ -1,27 +1,31 @@
 import * as React from "react";
-import { capitalize } from "lodash";
+import capitalize from "lodash/capitalize";
 import { Portal } from "react-portal";
 import { EditorView } from "prosemirror-view";
 import { findParentNode } from "prosemirror-utils";
 import styled from "styled-components";
-import { EmbedDescriptor, MenuItem } from "../types";
+import { EmbedDescriptor, MenuItem, ToastType } from "../types";
 import BlockMenuItem from "./BlockMenuItem";
 import Input from "./Input";
 import VisuallyHidden from "./VisuallyHidden";
 import getDataTransferFiles from "../lib/getDataTransferFiles";
 import insertFiles from "../commands/insertFiles";
 import getMenuItems from "../menus/block";
+import baseDictionary from "../dictionary";
+
 const SSR = typeof window === "undefined";
 
 type Props = {
   isActive: boolean;
   commands: Record<string, any>;
+  dictionary: typeof baseDictionary;
   view: EditorView;
   search: string;
   uploadImage?: (file: File) => Promise<string>;
   onImageUploadStart?: () => void;
   onImageUploadStop?: () => void;
   onShowToast?: (message: string, id: string) => void;
+  onLinkToolbarOpen: () => void;
   onClose: () => void;
   embeds: EmbedDescriptor[];
 };
@@ -41,7 +45,7 @@ class BlockMenu extends React.Component<Props, State> {
 
   state: State = {
     left: -1000,
-    top: undefined,
+    top: 0,
     bottom: undefined,
     isAbove: false,
     selectedIndex: 0,
@@ -90,14 +94,9 @@ class BlockMenu extends React.Component<Props, State> {
       event.stopPropagation();
 
       const item = this.filtered[this.state.selectedIndex];
+
       if (item) {
-        if (item.name === "image") {
-          this.triggerImagePick();
-        } else if (item.name === "embed") {
-          this.triggerLinkInput(item);
-        } else {
-          this.insertBlock(item);
-        }
+        this.insertItem(item);
       } else {
         this.props.onClose();
       }
@@ -151,6 +150,23 @@ class BlockMenu extends React.Component<Props, State> {
     }
   };
 
+  insertItem = item => {
+    switch (item.name) {
+      case "image":
+        return this.triggerImagePick();
+      case "embed":
+        return this.triggerLinkInput(item);
+      case "link": {
+        this.clearSearch();
+        this.props.onClose();
+        this.props.onLinkToolbarOpen();
+        return;
+      }
+      default:
+        this.insertBlock(item);
+    }
+  };
+
   close = () => {
     this.props.onClose();
     this.props.view.focus();
@@ -169,8 +185,8 @@ class BlockMenu extends React.Component<Props, State> {
 
       if (!matches && this.props.onShowToast) {
         this.props.onShowToast(
-          "Sorry, that link won't work for this embed type.",
-          "embed_invalid_link"
+          this.props.dictionary.embedInvalidLink,
+          ToastType.Error
         );
         return;
       }
@@ -250,13 +266,18 @@ class BlockMenu extends React.Component<Props, State> {
         onImageUploadStart,
         onImageUploadStop,
         onShowToast,
+        dictionary: this.props.dictionary,
       });
+    }
+
+    if (this.inputRef.current) {
+      this.inputRef.current.value = "";
     }
 
     this.props.onClose();
   };
 
-  insertBlock(item) {
+  clearSearch() {
     const { state, dispatch } = this.props.view;
     const parent = findParentNode(node => !!node)(state.selection);
 
@@ -269,6 +290,10 @@ class BlockMenu extends React.Component<Props, State> {
         )
       );
     }
+  }
+
+  insertBlock(item) {
+    this.clearSearch();
 
     const command = this.props.commands[item.name];
     if (command) {
@@ -280,6 +305,37 @@ class BlockMenu extends React.Component<Props, State> {
     this.props.onClose();
   }
 
+  get caretPosition(): { top: number; left: number } {
+    const selection = window.document.getSelection();
+    if (!selection || !selection.anchorNode || !selection.focusNode) {
+      return {
+        top: 0,
+        left: 0,
+      };
+    }
+
+    const range = window.document.createRange();
+    range.setStart(selection.anchorNode, selection.anchorOffset);
+    range.setEnd(selection.focusNode, selection.focusOffset);
+
+    // This is a workaround for an edgecase where getBoundingClientRect will
+    // return zero values if the selection is collapsed at the start of a newline
+    // see reference here: https://stackoverflow.com/a/59780954
+    const rects = range.getClientRects();
+    if (rects.length === 0) {
+      // probably buggy newline behavior, explicitly select the node contents
+      if (range.startContainer && range.collapsed) {
+        range.selectNodeContents(range.startContainer);
+      }
+    }
+
+    const rect = range.getBoundingClientRect();
+    return {
+      top: rect.top,
+      left: rect.left,
+    };
+  }
+
   calculatePosition(props) {
     const { view } = props;
     const { selection } = view.state;
@@ -288,7 +344,12 @@ class BlockMenu extends React.Component<Props, State> {
     const offsetHeight = ref ? ref.offsetHeight : 0;
     const paragraph = view.domAtPos(selection.$from.pos);
 
-    if (!props.isActive || !paragraph.node || SSR) {
+    if (
+      !props.isActive ||
+      !paragraph.node ||
+      !paragraph.node.getBoundingClientRect ||
+      SSR
+    ) {
       return {
         left: -1000,
         top: 0,
@@ -297,7 +358,8 @@ class BlockMenu extends React.Component<Props, State> {
       };
     }
 
-    const { top, left, bottom } = paragraph.node.getBoundingClientRect();
+    const { left } = this.caretPosition;
+    const { top, bottom } = paragraph.node.getBoundingClientRect();
     const margin = 24;
 
     if (startPos.top - offsetHeight > margin) {
@@ -318,8 +380,8 @@ class BlockMenu extends React.Component<Props, State> {
   }
 
   get filtered() {
-    const { embeds, search = "" } = this.props;
-    let items: (EmbedDescriptor | MenuItem)[] = getMenuItems();
+    const { dictionary, embeds, search = "", uploadImage } = this.props;
+    let items: (EmbedDescriptor | MenuItem)[] = getMenuItems(dictionary);
     const embedItems: EmbedDescriptor[] = [];
 
     for (const embed of embeds) {
@@ -340,6 +402,12 @@ class BlockMenu extends React.Component<Props, State> {
 
     const filtered = items.filter(item => {
       if (item.name === "separator") return true;
+
+      // If no image upload callback has been passed, filter the image block out
+      if (!uploadImage && item.name === "image") return false;
+
+      // some items (defaultHidden) are not visible until a search query exists
+      if (!search) return !item.defaultHidden;
 
       const n = search.toLowerCase();
       return (
@@ -370,7 +438,7 @@ class BlockMenu extends React.Component<Props, State> {
   }
 
   render() {
-    const { isActive } = this.props;
+    const { dictionary, isActive, uploadImage } = this.props;
     const items = this.filtered;
     const { insertItem, ...positioning } = this.state;
 
@@ -388,8 +456,8 @@ class BlockMenu extends React.Component<Props, State> {
                 type="text"
                 placeholder={
                   insertItem.title
-                    ? `Paste a ${insertItem.title} link…`
-                    : "Paste a link…"
+                    ? dictionary.pasteLinkWithTitle(insertItem.title)
+                    : dictionary.pasteLink
                 }
                 onKeyDown={this.handleLinkInputKeydown}
                 onPaste={this.handleLinkInputPaste}
@@ -415,16 +483,7 @@ class BlockMenu extends React.Component<Props, State> {
                 return (
                   <ListItem key={index}>
                     <BlockMenuItem
-                      onClick={() => {
-                        switch (item.name) {
-                          case "image":
-                            return this.triggerImagePick();
-                          case "embed":
-                            return this.triggerLinkInput(item);
-                          default:
-                            this.insertBlock(item);
-                        }
-                      }}
+                      onClick={() => this.insertItem(item)}
                       selected={selected}
                       icon={item.icon}
                       title={item.title}
@@ -435,19 +494,21 @@ class BlockMenu extends React.Component<Props, State> {
               })}
               {items.length === 0 && (
                 <ListItem>
-                  <Empty>No results</Empty>
+                  <Empty>{dictionary.noResults}</Empty>
                 </ListItem>
               )}
             </List>
           )}
-          <VisuallyHidden>
-            <input
-              type="file"
-              ref={this.inputRef}
-              onChange={this.handleImagePicked}
-              accept="image/*"
-            />
-          </VisuallyHidden>
+          {uploadImage && (
+            <VisuallyHidden>
+              <input
+                type="file"
+                ref={this.inputRef}
+                onChange={this.handleImagePicked}
+                accept="image/*"
+              />
+            </VisuallyHidden>
+          )}
         </Wrapper>
       </Portal>
     );
@@ -500,8 +561,8 @@ export const Wrapper = styled.div<{
   z-index: ${props => {
     return props.theme.zIndex + 100;
   }};
-  ${props => props.top && `top: ${props.top}px`};
-  ${props => props.bottom && `bottom: ${props.bottom}px`};
+  ${props => props.top !== undefined && `top: ${props.top}px`};
+  ${props => props.bottom !== undefined && `bottom: ${props.bottom}px`};
   left: ${props => props.left}px;
   background-color: ${props => props.theme.blockToolbarBackground};
   border-radius: 4px;

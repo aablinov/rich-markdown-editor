@@ -1,20 +1,22 @@
 /* global window File Promise */
 import * as React from "react";
+import memoize from "lodash/memoize";
 import { EditorState, Selection, Plugin } from "prosemirror-state";
 import { dropCursor } from "prosemirror-dropcursor";
 import { gapCursor } from "prosemirror-gapcursor";
 import { MarkdownParser, MarkdownSerializer } from "prosemirror-markdown";
 import { EditorView } from "prosemirror-view";
-import { Schema, NodeSpec, MarkSpec } from "prosemirror-model";
+import { Schema, NodeSpec, MarkSpec, Slice } from "prosemirror-model";
 import { inputRules, InputRule } from "prosemirror-inputrules";
 import { keymap } from "prosemirror-keymap";
 import { baseKeymap } from "prosemirror-commands";
 import { selectColumn, selectRow, selectTable } from "prosemirror-utils";
 import styled, { ThemeProvider } from "styled-components";
 import { light as lightTheme, dark as darkTheme } from "./theme";
+import baseDictionary from "./dictionary";
 import Flex from "./components/Flex";
 import { SearchResult } from "./components/LinkEditor";
-import { EmbedDescriptor } from "./types";
+import { EmbedDescriptor, ToastType } from "./types";
 import SelectionToolbar from "./components/SelectionToolbar";
 import BlockMenu from "./components/BlockMenu";
 import LinkToolbar from "./components/LinkToolbar";
@@ -35,10 +37,12 @@ import CodeFence from "./nodes/CodeFence";
 import CheckboxList from "./nodes/CheckboxList";
 import CheckboxItem from "./nodes/CheckboxItem";
 import Embed from "./nodes/Embed";
+import HardBreak from "./nodes/HardBreak";
 import Heading from "./nodes/Heading";
 import HorizontalRule from "./nodes/HorizontalRule";
 import Image from "./nodes/Image";
 import ListItem from "./nodes/ListItem";
+import Notice from "./nodes/Notice";
 import OrderedList from "./nodes/OrderedList";
 import Paragraph from "./nodes/Paragraph";
 import Table from "./nodes/Table";
@@ -53,11 +57,14 @@ import Highlight from "./marks/Highlight";
 import Italic from "./marks/Italic";
 import Link from "./marks/Link";
 import Strikethrough from "./marks/Strikethrough";
+import TemplatePlaceholder from "./marks/Placeholder";
+import Underline from "./marks/Underline";
 
 // plugins
 import BlockMenuTrigger from "./plugins/BlockMenuTrigger";
 import History from "./plugins/History";
 import Keys from "./plugins/Keys";
+import MaxLength from "./plugins/MaxLength";
 import Placeholder from "./plugins/Placeholder";
 import SmartText from "./plugins/SmartText";
 import TrailingNode from "./plugins/TrailingNode";
@@ -77,10 +84,20 @@ export type Props = {
   extensions: Extension[];
   autoFocus?: boolean;
   readOnly?: boolean;
+  readOnlyWriteCheckboxes?: boolean;
+  dictionary?: Partial<typeof baseDictionary>;
   dark?: boolean;
   theme?: typeof theme;
+  template?: boolean;
   headingsOffset?: number;
+  maxLength?: number;
+  scrollTo?: string;
+  handleDOMEvents?: {
+    [name: string]: (view: EditorView, event: Event) => boolean;
+  };
   uploadImage?: (file: File) => Promise<string>;
+  onBlur?: () => void;
+  onFocus?: () => void;
   onSave?: ({ done: boolean }) => void;
   onCancel?: () => void;
   onChange: (value: () => string) => void;
@@ -88,20 +105,27 @@ export type Props = {
   onImageUploadStop?: () => void;
   onCreateLink?: (title: string) => Promise<string>;
   onSearchLink?: (term: string) => Promise<SearchResult[]>;
-  onClickLink: (href: string) => void;
-  onClickHashtag?: (tag: string) => void;
+  onClickLink: (href: string, event: MouseEvent) => void;
+  onHoverLink?: (event: MouseEvent) => boolean;
+  onClickHashtag?: (tag: string, event: MouseEvent) => void;
   onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
   embeds: EmbedDescriptor[];
-  onShowToast?: (message: string) => void;
-  tooltip: typeof React.Component;
+  onShowToast?: (message: string, code: ToastType) => void;
+  tooltip: typeof React.Component | React.FC<any>;
   className?: string;
   style?: Record<string, string>;
 };
 
 type State = {
+  isEditorFocused: boolean;
+  selectionMenuOpen: boolean;
   blockMenuOpen: boolean;
   linkMenuOpen: boolean;
   blockMenuSearch: string;
+};
+
+type Step = {
+  slice?: Slice;
 };
 
 class RichMarkdownEditor extends React.PureComponent<Props, State> {
@@ -123,11 +147,14 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
   };
 
   state = {
+    isEditorFocused: false,
+    selectionMenuOpen: false,
     blockMenuOpen: false,
     linkMenuOpen: false,
     blockMenuSearch: "",
   };
 
+  isBlurred: boolean;
   extensions: ExtensionManager;
   element?: HTMLElement | null;
   view: EditorView;
@@ -146,7 +173,10 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
 
   componentDidMount() {
     this.init();
-    this.scrollToAnchor();
+
+    if (this.props.scrollTo) {
+      this.scrollToAnchor(this.props.scrollTo);
+    }
 
     if (this.props.readOnly) return;
 
@@ -170,10 +200,40 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
       });
     }
 
+    if (this.props.scrollTo && this.props.scrollTo !== prevProps.scrollTo) {
+      this.scrollToAnchor(this.props.scrollTo);
+    }
+
     // Focus at the end of the document if switching from readOnly and autoFocus
     // is set to true
     if (prevProps.readOnly && !this.props.readOnly && this.props.autoFocus) {
       this.focusAtEnd();
+    }
+
+    if (
+      !this.isBlurred &&
+      !this.state.isEditorFocused &&
+      !this.state.blockMenuOpen &&
+      !this.state.linkMenuOpen &&
+      !this.state.selectionMenuOpen
+    ) {
+      this.isBlurred = true;
+      if (this.props.onBlur) {
+        this.props.onBlur();
+      }
+    }
+
+    if (
+      this.isBlurred &&
+      (this.state.isEditorFocused ||
+        this.state.blockMenuOpen ||
+        this.state.linkMenuOpen ||
+        this.state.selectionMenuOpen)
+    ) {
+      this.isBlurred = false;
+      if (this.props.onFocus) {
+        this.props.onFocus();
+      }
     }
   }
 
@@ -193,32 +253,42 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
   }
 
   createExtensions() {
+    const dictionary = this.dictionary(this.props.dictionary);
+
     // adding nodes here? Update schema.ts for serialization on the server
     return new ExtensionManager(
       [
         new Doc(),
         new Text(),
+        new HardBreak(),
         new Paragraph(),
         new Blockquote(),
-        new BulletList(),
         new CodeBlock({
+          dictionary,
           initialReadOnly: this.props.readOnly,
           onShowToast: this.props.onShowToast,
         }),
         new CodeFence({
+          dictionary,
           initialReadOnly: this.props.readOnly,
           onShowToast: this.props.onShowToast,
         }),
         new CheckboxList(),
         new CheckboxItem(),
+        new BulletList(),
         new Embed(),
         new ListItem(),
+        new Notice({
+          dictionary,
+        }),
         new Heading({
+          dictionary,
           onShowToast: this.props.onShowToast,
           offset: this.props.headingsOffset,
         }),
         new HorizontalRule(),
         new Image({
+          dictionary,
           uploadImage: this.props.uploadImage,
           onImageUploadStart: this.props.onImageUploadStart,
           onImageUploadStop: this.props.onImageUploadStop,
@@ -237,10 +307,13 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
         new Code(),
         new Highlight(),
         new Italic(),
+        new TemplatePlaceholder(),
+        new Underline(),
         new Link({
           onKeyboardShortcut: this.handleOpenLinkMenu,
           onClickLink: this.props.onClickLink,
           onClickHashtag: this.props.onClickHashtag,
+          onHoverLink: this.props.onHoverLink,
         }),
         new Strikethrough(),
         new OrderedList(),
@@ -249,16 +322,22 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
         new TrailingNode(),
         new MarkdownPaste(),
         new Keys({
+          onBlur: this.handleEditorBlur,
+          onFocus: this.handleEditorFocus,
           onSave: this.handleSave,
           onSaveAndExit: this.handleSaveAndExit,
           onCancel: this.props.onCancel,
         }),
         new BlockMenuTrigger({
+          dictionary,
           onOpen: this.handleOpenBlockMenu,
           onClose: this.handleCloseBlockMenu,
         }),
         new Placeholder({
           placeholder: this.props.placeholder,
+        }),
+        new MaxLength({
+          maxLength: this.props.maxLength,
         }),
         ...this.props.extensions,
       ],
@@ -345,7 +424,7 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
       plugins: [
         ...this.plugins,
         ...this.keymaps,
-        dropCursor(),
+        dropCursor({ color: this.theme().cursor }),
         gapCursor(),
         inputRules({
           rules: this.inputRules,
@@ -364,10 +443,19 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
       throw new Error("createView called before ref available");
     }
 
+    const isEditingCheckbox = tr => {
+      return tr.steps.some(
+        (step: Step) =>
+          step.slice?.content?.firstChild?.type.name ===
+          this.schema.nodes.checkbox_item.name
+      );
+    };
+
     const view = new EditorView(this.element, {
       state: this.createState(),
       editable: () => !this.props.readOnly,
       nodeViews: this.nodeViews,
+      handleDOMEvents: this.props.handleDOMEvents,
       dispatchTransaction: transaction => {
         const { state, transactions } = this.view.state.applyTransaction(
           transaction
@@ -378,7 +466,12 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
         // If any of the transactions being dispatched resulted in the doc
         // changing then call our own change handler to let the outside world
         // know
-        if (transactions.some(tr => tr.docChanged)) {
+        if (
+          transactions.some(tr => tr.docChanged) &&
+          (!this.props.readOnly ||
+            (this.props.readOnlyWriteCheckboxes &&
+              transactions.some(isEditingCheckbox)))
+        ) {
           this.handleChange();
         }
 
@@ -388,11 +481,13 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
       },
     });
 
+    // Tell third-party libraries and screen-readers that this is an input
+    view.dom.setAttribute("role", "textbox");
+
     return view;
   }
 
-  scrollToAnchor() {
-    const { hash } = window.location;
+  scrollToAnchor(hash: string) {
     if (!hash) return;
 
     try {
@@ -411,11 +506,11 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
   };
 
   handleChange = () => {
-    if (this.props.onChange && !this.props.readOnly) {
-      this.props.onChange(() => {
-        return this.value();
-      });
-    }
+    if (!this.props.onChange) return;
+
+    this.props.onChange(() => {
+      return this.value();
+    });
   };
 
   handleSave = () => {
@@ -432,8 +527,24 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
     }
   };
 
+  handleEditorBlur = () => {
+    this.setState({ isEditorFocused: false });
+  };
+
+  handleEditorFocus = () => {
+    this.setState({ isEditorFocused: true });
+  };
+
+  handleOpenSelectionMenu = () => {
+    this.setState({ blockMenuOpen: false, selectionMenuOpen: true });
+  };
+
+  handleCloseSelectionMenu = () => {
+    this.setState({ selectionMenuOpen: false });
+  };
+
   handleOpenLinkMenu = () => {
-    this.setState({ linkMenuOpen: true });
+    this.setState({ blockMenuOpen: false, linkMenuOpen: true });
   };
 
   handleCloseLinkMenu = () => {
@@ -507,9 +618,26 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
     return headings;
   };
 
+  theme = () => {
+    return this.props.theme || (this.props.dark ? darkTheme : lightTheme);
+  };
+
+  dictionary = memoize(
+    (providedDictionary?: Partial<typeof baseDictionary>) => {
+      return { ...baseDictionary, ...providedDictionary };
+    }
+  );
+
   render = () => {
-    const { dark, readOnly, style, tooltip, className, onKeyDown } = this.props;
-    const theme = this.props.theme || (dark ? darkTheme : lightTheme);
+    const {
+      readOnly,
+      readOnlyWriteCheckboxes,
+      style,
+      tooltip,
+      className,
+      onKeyDown,
+    } = this.props;
+    const dictionary = this.dictionary(this.props.dictionary);
 
     return (
       <Flex
@@ -520,17 +648,22 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
         justify="center"
         column
       >
-        <ThemeProvider theme={theme}>
+        <ThemeProvider theme={this.theme()}>
           <React.Fragment>
             <StyledEditor
               readOnly={readOnly}
+              readOnlyWriteCheckboxes={readOnlyWriteCheckboxes}
               ref={ref => (this.element = ref)}
             />
             {!readOnly && this.view && (
               <React.Fragment>
                 <SelectionToolbar
                   view={this.view}
+                  dictionary={dictionary}
                   commands={this.commands}
+                  isTemplate={this.props.template === true}
+                  onOpen={this.handleOpenSelectionMenu}
+                  onClose={this.handleCloseSelectionMenu}
                   onSearchLink={this.props.onSearchLink}
                   onClickLink={this.props.onClickLink}
                   onCreateLink={this.props.onCreateLink}
@@ -538,6 +671,7 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
                 />
                 <LinkToolbar
                   view={this.view}
+                  dictionary={dictionary}
                   isActive={this.state.linkMenuOpen}
                   onCreateLink={this.props.onCreateLink}
                   onSearchLink={this.props.onSearchLink}
@@ -549,10 +683,12 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
                 <BlockMenu
                   view={this.view}
                   commands={this.commands}
+                  dictionary={dictionary}
                   isActive={this.state.blockMenuOpen}
                   search={this.state.blockMenuSearch}
                   onClose={this.handleCloseBlockMenu}
                   uploadImage={this.props.uploadImage}
+                  onLinkToolbarOpen={this.handleOpenLinkMenu}
                   onImageUploadStart={this.props.onImageUploadStart}
                   onImageUploadStop={this.props.onImageUploadStop}
                   onShowToast={this.props.onShowToast}
@@ -567,7 +703,10 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
   };
 }
 
-const StyledEditor = styled("div")<{ readOnly?: boolean }>`
+const StyledEditor = styled("div")<{
+  readOnly?: boolean;
+  readOnlyWriteCheckboxes?: boolean;
+}>`
   color: ${props => props.theme.text};
   background: ${props => props.theme.background};
   font-family: ${props => props.theme.fontFamily};
@@ -595,20 +734,41 @@ const StyledEditor = styled("div")<{ readOnly?: boolean }>`
     position: relative;
   }
 
-  img {
-    max-width: 100%;
-  }
-
   .image {
     text-align: center;
+    max-width: 100%;
+    clear: both;
 
     img {
       pointer-events: ${props => (props.readOnly ? "initial" : "none")};
+      display: inline-block;
+      max-width: 100%;
+      max-height: 75vh;
     }
   }
 
-  .image.placeholder img {
-    opacity: 0.5;
+  .image.placeholder {
+    position: relative;
+    background: ${props => props.theme.background};
+    img {
+      opacity: 0.5;
+    }
+  }
+
+  .image-right-50 {
+    float: right;
+    width: 50%;
+    margin-left: 2em;
+    margin-bottom: 1em;
+    clear: initial;
+  }
+
+  .image-left-50 {
+    float: left;
+    width: 50%;
+    margin-right: 2em;
+    margin-bottom: 1em;
+    clear: initial;
   }
 
   .ProseMirror-hideselection *::selection {
@@ -622,7 +782,8 @@ const StyledEditor = styled("div")<{ readOnly?: boolean }>`
   }
 
   .ProseMirror-selectednode {
-    outline: 2px solid ${props => props.theme.selected};
+    outline: 2px solid
+      ${props => (props.readOnly ? "transparent" : props.theme.selected)};
   }
 
   /* Make sure li selections wrap around markers */
@@ -642,6 +803,15 @@ const StyledEditor = styled("div")<{ readOnly?: boolean }>`
     pointer-events: none;
   }
 
+  .ProseMirror[contenteditable="false"] {
+    .caption {
+      pointer-events: none;
+    }
+    .caption:empty {
+      visibility: hidden;
+    }
+  }
+
   h1,
   h2,
   h3,
@@ -653,12 +823,32 @@ const StyledEditor = styled("div")<{ readOnly?: boolean }>`
     cursor: default;
 
     &:not(.placeholder):before {
-      display: ${props => (props.readOnly ? "none" : "block")};
-      position: absolute;
+      display: ${props => (props.readOnly ? "none" : "inline-block")};
       font-family: ${props => props.theme.fontFamilyMono};
       color: ${props => props.theme.textSecondary};
       font-size: 13px;
-      left: -24px;
+      line-height: 0;
+      margin-left: -24px;
+      width: 24px;
+    }
+
+    &:hover {
+      .heading-anchor {
+        opacity: 1;
+      }
+    }
+  }
+  .heading-content {
+    &:before {
+      content: "​";
+      display: inline;
+    }
+  }
+  .heading-name {
+    color: ${props => props.theme.text};
+
+    &:hover {
+      text-decoration: none;
     }
   }
 
@@ -675,19 +865,15 @@ const StyledEditor = styled("div")<{ readOnly?: boolean }>`
 
   h1:not(.placeholder):before {
     content: "H1";
-    line-height: 3em;
   }
   h2:not(.placeholder):before {
     content: "H2";
-    line-height: 2.8em;
   }
   h3:not(.placeholder):before {
     content: "H3";
-    line-height: 2.3em;
   }
   h4:not(.placeholder):before {
     content: "H4";
-    line-height: 2.2em;
   }
   h5:not(.placeholder):before {
     content: "H5";
@@ -696,25 +882,13 @@ const StyledEditor = styled("div")<{ readOnly?: boolean }>`
     content: "H6";
   }
 
-  .heading-name {
-    color: ${props => props.theme.text};
-
-    &:hover {
-      text-decoration: none;
-
-      .heading-anchor {
-        opacity: 1;
-      }
-    }
-  }
-
   .with-emoji {
     margin-left: -1em;
   }
 
   .heading-anchor {
     opacity: 0;
-    display: ${props => (props.readOnly ? "block" : "none")};
+    display: ${props => (props.readOnly ? "inline-block" : "none")};
     color: ${props => props.theme.textSecondary};
     cursor: pointer;
     background: none;
@@ -722,11 +896,12 @@ const StyledEditor = styled("div")<{ readOnly?: boolean }>`
     outline: none;
     padding: 2px 12px 2px 4px;
     margin: 0;
-    position: absolute;
     transition: opacity 100ms ease-in-out;
     font-family: ${props => props.theme.fontFamilyMono};
     font-size: 22px;
-    left: -1.3em;
+    line-height: 0;
+    margin-left: -24px;
+    width: 24px;
 
     &:focus,
     &:hover {
@@ -744,11 +919,79 @@ const StyledEditor = styled("div")<{ readOnly?: boolean }>`
     }
   }
 
+  @media print {
+    .placeholder {
+      display: none;
+    }
+  }
+
+  .notice-block {
+    display: flex;
+    align-items: center;
+    background: ${props => props.theme.noticeInfoBackground};
+    color: ${props => props.theme.noticeInfoText};
+    border-radius: 4px;
+    padding: 8px 16px;
+    margin: 8px 0;
+
+    a {
+      color: ${props => props.theme.noticeInfoText};
+    }
+
+    a:not(.heading-name) {
+      text-decoration: underline;
+    }
+  }
+
+  .notice-block .content {
+    flex-grow: 1;
+  }
+
+  .notice-block .icon {
+    width: 24px;
+    height: 24px;
+    align-self: flex-start;
+    margin-right: 4px;
+    position: relative;
+    top: 1px;
+  }
+
+  .notice-block.tip {
+    background: ${props => props.theme.noticeTipBackground};
+    color: ${props => props.theme.noticeTipText};
+
+    a {
+      color: ${props => props.theme.noticeTipText};
+    }
+  }
+
+  .notice-block.warning {
+    background: ${props => props.theme.noticeWarningBackground};
+    color: ${props => props.theme.noticeWarningText};
+
+    a {
+      color: ${props => props.theme.noticeWarningText};
+    }
+  }
+
   blockquote {
-    border-left: 3px solid ${props => props.theme.quote};
     margin: 0;
-    padding-left: 10px;
+    padding-left: 1em;
     font-style: italic;
+    overflow: hidden;
+    position: relative;
+
+    &:before {
+      content: "";
+      display: inline-block;
+      width: 3px;
+      border-radius: 1px;
+      position: absolute;
+      margin-left: -16px;
+      top: 0;
+      bottom: 0;
+      background: ${props => props.theme.quote};
+    }
   }
 
   b,
@@ -756,8 +999,20 @@ const StyledEditor = styled("div")<{ readOnly?: boolean }>`
     font-weight: 600;
   }
 
+  .template-placeholder {
+    color: ${props => props.theme.placeholder};
+    border-bottom: 1px dotted ${props => props.theme.placeholder};
+    border-radius: 2px;
+    cursor: text;
+
+    &:hover {
+      border-bottom: 1px dotted
+        ${props =>
+          props.readOnly ? props.theme.placeholder : props.theme.textSecondary};
+    }
+  }
+
   p {
-    position: relative;
     margin: 0;
   }
 
@@ -771,23 +1026,41 @@ const StyledEditor = styled("div")<{ readOnly?: boolean }>`
 
   ul,
   ol {
-    margin: 0 0.1em;
-    padding: 0 0 0 1em;
+    margin: 0 0.1em 0 -26px;
+    padding: 0 0 0 44px;
 
     ul,
     ol {
-      margin: 0;
+      margin-right: -24px;
     }
+  }
+
+  ol ol {
+    list-style: lower-alpha;
+  }
+
+  ol ol ol {
+    list-style: lower-roman;
   }
 
   ul.checkbox_list {
     list-style: none;
     padding: 0;
-    margin: 0;
+    margin: 0 0 0 -24px;
+  }
+
+  ul li,
+  ol li {
+    position: relative;
+
+    > div {
+      width: 100%;
+    }
   }
 
   ul.checkbox_list li {
     display: flex;
+    padding-left: 24px;
   }
 
   ul.checkbox_list li.checked > div > p {
@@ -795,16 +1068,48 @@ const StyledEditor = styled("div")<{ readOnly?: boolean }>`
     text-decoration: line-through;
   }
 
+  ul li::before,
+  ol li::before {
+    background: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3QgeD0iOCIgeT0iNyIgd2lkdGg9IjMiIGhlaWdodD0iMiIgcng9IjEiIGZpbGw9IiM0RTVDNkUiLz4KPHJlY3QgeD0iOCIgeT0iMTEiIHdpZHRoPSIzIiBoZWlnaHQ9IjIiIHJ4PSIxIiBmaWxsPSIjNEU1QzZFIi8+CjxyZWN0IHg9IjgiIHk9IjE1IiB3aWR0aD0iMyIgaGVpZ2h0PSIyIiByeD0iMSIgZmlsbD0iIzRFNUM2RSIvPgo8cmVjdCB4PSIxMyIgeT0iNyIgd2lkdGg9IjMiIGhlaWdodD0iMiIgcng9IjEiIGZpbGw9IiM0RTVDNkUiLz4KPHJlY3QgeD0iMTMiIHk9IjExIiB3aWR0aD0iMyIgaGVpZ2h0PSIyIiByeD0iMSIgZmlsbD0iIzRFNUM2RSIvPgo8cmVjdCB4PSIxMyIgeT0iMTUiIHdpZHRoPSIzIiBoZWlnaHQ9IjIiIHJ4PSIxIiBmaWxsPSIjNEU1QzZFIi8+Cjwvc3ZnPgo=");
+    content: "";
+    display: ${props => (props.readOnly ? "none" : "inline-block")};
+    cursor: move;
+    width: 24px;
+    height: 24px;
+    position: absolute;
+    left: -40px;
+    top: 2px;
+    opacity: 0;
+    transition: opacity 200ms ease-in-out;
+  }
+
+  ul > li.hovering::before,
+  ol li.hovering::before {
+    opacity: 0.5;
+  }
+
+  ul li.ProseMirror-selectednode::after,
+  ol li.ProseMirror-selectednode::after {
+    display: none;
+  }
+
+  ul.checkbox_list li::before {
+    left: 0;
+  }
+
   ul.checkbox_list li input {
-    pointer-events: ${props => (props.readOnly ? "none" : "initial")};
-    opacity: ${props => (props.readOnly ? 0.75 : 1)};
-    margin: 0 0.5em 0 0;
+    pointer-events: ${props =>
+      props.readOnly && !props.readOnlyWriteCheckboxes ? "none" : "initial"};
+    opacity: ${props =>
+      props.readOnly && !props.readOnlyWriteCheckboxes ? 0.75 : 1};
+    margin: 0.5em 0.5em 0 0;
     width: 14px;
     height: 14px;
   }
 
   li p:first-child {
     margin: 0;
+    word-break: break-word;
   }
 
   hr {
@@ -823,21 +1128,35 @@ const StyledEditor = styled("div")<{ readOnly?: boolean }>`
 
   mark {
     border-radius: 1px;
-    color: ${props => props.theme.black};
+    color: ${props => props.theme.textHighlightForeground};
     background: ${props => props.theme.textHighlight};
+
+    a {
+      color: ${props => props.theme.textHighlightForeground};
+    }
   }
 
-  .code-block {
+  .code-block,
+  .notice-block {
     position: relative;
 
     select,
     button {
+      background: ${props => props.theme.blockToolbarBackground};
+      color: ${props => props.theme.blockToolbarItem};
+      border-width: 1px;
       font-size: 13px;
       display: none;
       position: absolute;
+      border-radius: 4px;
+      padding: 2px;
       z-index: 1;
       top: 4px;
       right: 4px;
+    }
+
+    button {
+      padding: 2px 4px;
     }
 
     &:hover {
@@ -994,6 +1313,11 @@ const StyledEditor = styled("div")<{ readOnly?: boolean }>`
     border-collapse: collapse;
     border-radius: 4px;
     margin-top: 1em;
+    box-sizing: border-box;
+
+    * {
+      box-sizing: border-box;
+    }
 
     tr {
       position: relative;
@@ -1018,74 +1342,91 @@ const StyledEditor = styled("div")<{ readOnly?: boolean }>`
     .selectedCell {
       background: ${props =>
         props.readOnly ? "inherit" : props.theme.tableSelectedBackground};
+
+      /* fixes Firefox background color painting over border:
+       * https://bugzilla.mozilla.org/show_bug.cgi?id=688556 */
+      background-clip: padding-box;
     }
 
     .grip-column {
-      cursor: pointer;
-      position: absolute;
-      top: -16px;
-      left: 0;
-      width: 100%;
-      height: 12px;
-      background: ${props => props.theme.tableDivider};
-      border-bottom: 3px solid ${props => props.theme.background};
-      display: ${props => (props.readOnly ? "none" : "block")};
+      /* usage of ::after for all of the table grips works around a bug in
+       * prosemirror-tables that causes Safari to hang when selecting a cell
+       * in an empty table:
+       * https://github.com/ProseMirror/prosemirror/issues/947 */
+      &::after {
+        content: "";
+        cursor: pointer;
+        position: absolute;
+        top: -16px;
+        left: 0;
+        width: 100%;
+        height: 12px;
+        background: ${props => props.theme.tableDivider};
+        border-bottom: 3px solid ${props => props.theme.background};
+        display: ${props => (props.readOnly ? "none" : "block")};
+      }
 
-      &:hover {
+      &:hover::after {
         background: ${props => props.theme.text};
       }
-      &.first {
+      &.first::after {
         border-top-left-radius: 3px;
       }
-      &.last {
+      &.last::after {
         border-top-right-radius: 3px;
       }
-      &.selected {
+      &.selected::after {
         background: ${props => props.theme.tableSelected};
       }
     }
 
     .grip-row {
-      cursor: pointer;
-      position: absolute;
-      left: -16px;
-      top: 0;
-      height: 100%;
-      width: 12px;
-      background: ${props => props.theme.tableDivider};
-      border-right: 3px solid ${props => props.theme.background};
-      display: ${props => (props.readOnly ? "none" : "block")};
+      &::after {
+        content: "";
+        cursor: pointer;
+        position: absolute;
+        left: -16px;
+        top: 0;
+        height: 100%;
+        width: 12px;
+        background: ${props => props.theme.tableDivider};
+        border-right: 3px solid ${props => props.theme.background};
+        display: ${props => (props.readOnly ? "none" : "block")};
+      }
 
-      &:hover {
+      &:hover::after {
         background: ${props => props.theme.text};
       }
-      &.first {
+      &.first::after {
         border-top-left-radius: 3px;
       }
-      &.last {
+      &.last::after {
         border-bottom-left-radius: 3px;
       }
-      &.selected {
+      &.selected::after {
         background: ${props => props.theme.tableSelected};
       }
     }
 
     .grip-table {
-      cursor: pointer;
-      background: ${props => props.theme.tableDivider};
-      width: 13px;
-      height: 13px;
-      border-radius: 13px;
-      border: 2px solid ${props => props.theme.background};
-      position: absolute;
-      top: -18px;
-      left: -18px;
-      display: ${props => (props.readOnly ? "none" : "block")};
+      &::after {
+        content: "";
+        cursor: pointer;
+        background: ${props => props.theme.tableDivider};
+        width: 13px;
+        height: 13px;
+        border-radius: 13px;
+        border: 2px solid ${props => props.theme.background};
+        position: absolute;
+        top: -18px;
+        left: -18px;
+        display: ${props => (props.readOnly ? "none" : "block")};
+      }
 
-      &:hover {
+      &:hover::after {
         background: ${props => props.theme.text};
       }
-      &.selected {
+      &.selected::after {
         background: ${props => props.theme.tableSelected};
       }
     }
@@ -1094,11 +1435,38 @@ const StyledEditor = styled("div")<{ readOnly?: boolean }>`
   .scrollable-wrapper {
     position: relative;
     margin: 0.5em 0px;
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+
+    &:hover {
+      scrollbar-color: ${props => props.theme.scrollbarThumb}
+        ${props => props.theme.scrollbarBackground};
+    }
+
+    & ::-webkit-scrollbar {
+      height: 14px;
+      background-color: transparent;
+    }
+
+    &:hover ::-webkit-scrollbar {
+      background-color: ${props => props.theme.scrollbarBackground};
+    }
+
+    & ::-webkit-scrollbar-thumb {
+      background-color: transparent;
+      border: 3px solid transparent;
+      border-radius: 7px;
+    }
+
+    &:hover ::-webkit-scrollbar-thumb {
+      background-color: ${props => props.theme.scrollbarThumb};
+      border-color: ${props => props.theme.scrollbarBackground};
+    }
   }
 
   .scrollable {
     overflow-y: hidden;
-    overflow-x: scroll;
+    overflow-x: auto;
     padding-left: 1em;
     margin-left: -1em;
     border-left: 1px solid transparent;
@@ -1130,27 +1498,31 @@ const StyledEditor = styled("div")<{ readOnly?: boolean }>`
   }
 
   .block-menu-trigger {
-    display: ${props => (props.readOnly ? "none" : "block")};
-    height: 1em;
+    display: ${props => (props.readOnly ? "none" : "inline")};
+    width: 24px;
+    height: 24px;
     color: ${props => props.theme.textSecondary};
     background: none;
-    border-radius: 100%;
-    font-size: 30px;
     position: absolute;
-    transform: scale(0.9);
     transition: color 150ms cubic-bezier(0.175, 0.885, 0.32, 1.275),
       transform 150ms cubic-bezier(0.175, 0.885, 0.32, 1.275);
     outline: none;
     border: 0;
-    line-height: 1;
-    margin-top: -6px;
-    left: -34px;
+    padding: 0;
+    margin-top: 1px;
+    margin-left: -24px;
 
     &:hover,
     &:focus {
       cursor: pointer;
-      transform: scale(1);
+      transform: scale(1.2);
       color: ${props => props.theme.text};
+    }
+  }
+
+  @media print {
+    .block-menu-trigger {
+      display: none;
     }
   }
 
@@ -1178,6 +1550,13 @@ const StyledEditor = styled("div")<{ readOnly?: boolean }>`
 
   .ProseMirror-focused .ProseMirror-gapcursor {
     display: block;
+  }
+
+  @media print {
+    em,
+    blockquote {
+      font-family: "SF Pro Text", ${props => props.theme.fontFamily};
+    }
   }
 `;
 

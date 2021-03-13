@@ -1,7 +1,11 @@
-import { Plugin } from "prosemirror-state";
 import { InputRule } from "prosemirror-inputrules";
-import { Decoration, DecorationSet } from "prosemirror-view";
+import ReactDOM from "react-dom";
+import * as React from "react";
+import { Plugin } from "prosemirror-state";
+import { isInTable } from "prosemirror-tables";
 import { findParentNode } from "prosemirror-utils";
+import { PlusIcon } from "outline-icons";
+import { Decoration, DecorationSet } from "prosemirror-view";
 import Extension from "../lib/Extension";
 
 const MAX_MATCH = 500;
@@ -39,6 +43,11 @@ export default class BlockMenuTrigger extends Extension {
   }
 
   get plugins() {
+    const button = document.createElement("button");
+    button.className = "block-menu-trigger";
+    button.type = "button";
+    ReactDOM.render(<PlusIcon fill="currentColor" />, button);
+
     return [
       new Plugin({
         props: {
@@ -102,14 +111,10 @@ export default class BlockMenuTrigger extends Extension {
               if (isEmpty) {
                 decorations.push(
                   Decoration.widget(parent.pos, () => {
-                    const icon = document.createElement("button");
-                    icon.type = "button";
-                    icon.className = "block-menu-trigger";
-                    icon.innerText = "+";
-                    icon.addEventListener("click", () => {
+                    button.addEventListener("click", () => {
                       this.options.onOpen("");
                     });
-                    return icon;
+                    return button;
                   })
                 );
 
@@ -119,7 +124,7 @@ export default class BlockMenuTrigger extends Extension {
                     parent.pos + parent.node.nodeSize,
                     {
                       class: "placeholder",
-                      "data-empty-text": "Type '/' to insert…",
+                      "data-empty-text": this.options.dictionary.newLineEmpty,
                     }
                   )
                 );
@@ -132,7 +137,7 @@ export default class BlockMenuTrigger extends Extension {
                     parent.pos + parent.node.nodeSize,
                     {
                       class: "placeholder",
-                      "data-empty-text": "  Keep typing to filter…",
+                      "data-empty-text": `  ${this.options.dictionary.newLineWithSlash}`,
                     }
                   )
                 );
@@ -153,7 +158,11 @@ export default class BlockMenuTrigger extends Extension {
       // main regex should match only:
       // /word
       new InputRule(OPEN_REGEX, (state, match) => {
-        if (match && state.selection.$from.parent.type.name === "paragraph") {
+        if (
+          match &&
+          state.selection.$from.parent.type.name === "paragraph" &&
+          !isInTable(state)
+        ) {
           this.options.onOpen(match[1]);
         }
         return null;

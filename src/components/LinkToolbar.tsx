@@ -4,24 +4,30 @@ import { EditorView } from "prosemirror-view";
 import LinkEditor, { SearchResult } from "./LinkEditor";
 import FloatingToolbar from "./FloatingToolbar";
 import createAndInsertLink from "../commands/createAndInsertLink";
+import baseDictionary from "../dictionary";
 
 type Props = {
   isActive: boolean;
   view: EditorView;
-  tooltip: typeof React.Component;
+  tooltip: typeof React.Component | React.FC<any>;
+  dictionary: typeof baseDictionary;
   onCreateLink?: (title: string) => Promise<string>;
   onSearchLink?: (term: string) => Promise<SearchResult[]>;
-  onClickLink: (url: string) => void;
+  onClickLink: (href: string, event: MouseEvent) => void;
   onShowToast?: (msg: string, code: string) => void;
   onClose: () => void;
 };
 
-function isActive(props) {
+function isActive(props: Props) {
   const { view } = props;
   const { selection } = view.state;
 
-  const paragraph = view.domAtPos(selection.$from.pos);
-  return props.isActive && !!paragraph.node;
+  try {
+    const paragraph = view.domAtPos(selection.from);
+    return props.isActive && !!paragraph.node;
+  } catch (err) {
+    return false;
+  }
 }
 
 export default class LinkToolbar extends React.Component<Props> {
@@ -53,7 +59,7 @@ export default class LinkToolbar extends React.Component<Props> {
   };
 
   handleOnCreateLink = async (title: string) => {
-    const { onCreateLink, view, onClose, onShowToast } = this.props;
+    const { dictionary, onCreateLink, view, onClose, onShowToast } = this.props;
 
     onClose();
     this.props.view.focus();
@@ -82,6 +88,7 @@ export default class LinkToolbar extends React.Component<Props> {
     createAndInsertLink(view, title, href, {
       onCreateLink,
       onShowToast,
+      dictionary,
     });
   };
 
@@ -116,15 +123,12 @@ export default class LinkToolbar extends React.Component<Props> {
 
   render() {
     const { onCreateLink, onClose, ...rest } = this.props;
-    const selection = this.props.view.state.selection;
+    const { selection } = this.props.view.state;
+    const active = isActive(this.props);
 
     return (
-      <FloatingToolbar
-        ref={this.menuRef}
-        active={isActive(this.props)}
-        {...rest}
-      >
-        {isActive(this.props) && (
+      <FloatingToolbar ref={this.menuRef} active={active} {...rest}>
+        {active && (
           <LinkEditor
             from={selection.from}
             to={selection.to}

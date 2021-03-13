@@ -7,6 +7,7 @@ import {
   BlockQuoteIcon,
   LinkIcon,
   StrikethroughIcon,
+  InputIcon,
   HighlightIcon,
 } from "outline-icons";
 import { isInTable } from "prosemirror-tables";
@@ -15,8 +16,13 @@ import isInList from "../queries/isInList";
 import isMarkActive from "../queries/isMarkActive";
 import isNodeActive from "../queries/isNodeActive";
 import { MenuItem } from "../types";
+import baseDictionary from "../dictionary";
 
-export default function formattingMenuItems(state: EditorState): MenuItem[] {
+export default function formattingMenuItems(
+  state: EditorState,
+  isTemplate: boolean,
+  dictionary: typeof baseDictionary
+): MenuItem[] {
   const { schema } = state;
   const isTable = isInTable(state);
   const isList = isInList(state);
@@ -24,32 +30,44 @@ export default function formattingMenuItems(state: EditorState): MenuItem[] {
 
   return [
     {
+      name: "placeholder",
+      tooltip: dictionary.placeholder,
+      icon: InputIcon,
+      active: isMarkActive(schema.marks.placeholder),
+      visible: isTemplate,
+    },
+    {
+      name: "separator",
+      visible: isTemplate,
+    },
+    {
       name: "strong",
-      tooltip: "Bold",
+      tooltip: dictionary.strong,
       icon: BoldIcon,
       active: isMarkActive(schema.marks.strong),
     },
     {
       name: "em",
-      tooltip: "Italic",
+      tooltip: dictionary.em,
       icon: ItalicIcon,
       active: isMarkActive(schema.marks.em),
     },
     {
       name: "strikethrough",
-      tooltip: "Strikethrough",
+      tooltip: dictionary.strikethrough,
       icon: StrikethroughIcon,
       active: isMarkActive(schema.marks.strikethrough),
     },
     {
       name: "mark",
-      tooltip: "Highlight",
+      tooltip: dictionary.mark,
       icon: HighlightIcon,
       active: isMarkActive(schema.marks.mark),
+      visible: !isTemplate,
     },
     {
       name: "code_inline",
-      tooltip: "Code",
+      tooltip: dictionary.codeInline,
       icon: CodeIcon,
       active: isMarkActive(schema.marks.code_inline),
     },
@@ -59,7 +77,7 @@ export default function formattingMenuItems(state: EditorState): MenuItem[] {
     },
     {
       name: "heading",
-      tooltip: "Heading",
+      tooltip: dictionary.heading,
       icon: Heading1Icon,
       active: isNodeActive(schema.nodes.heading, { level: 1 }),
       attrs: { level: 1 },
@@ -67,7 +85,7 @@ export default function formattingMenuItems(state: EditorState): MenuItem[] {
     },
     {
       name: "heading",
-      tooltip: "Subheading",
+      tooltip: dictionary.subheading,
       icon: Heading2Icon,
       active: isNodeActive(schema.nodes.heading, { level: 2 }),
       attrs: { level: 2 },
@@ -75,7 +93,7 @@ export default function formattingMenuItems(state: EditorState): MenuItem[] {
     },
     {
       name: "blockquote",
-      tooltip: "Quote",
+      tooltip: dictionary.quote,
       icon: BlockQuoteIcon,
       active: isNodeActive(schema.nodes.blockquote),
       attrs: { level: 2 },
@@ -86,7 +104,7 @@ export default function formattingMenuItems(state: EditorState): MenuItem[] {
     },
     {
       name: "link",
-      tooltip: "Create link",
+      tooltip: dictionary.createLink,
       icon: LinkIcon,
       active: isMarkActive(schema.marks.link),
       attrs: { href: "" },
