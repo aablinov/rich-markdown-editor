@@ -58,6 +58,8 @@ export const base = {
   noticeTipText: colors.white,
   noticeWarningBackground: "#FF5C80",
   noticeWarningText: colors.white,
+
+  spoilerBackground: "#F6F9FC",
 };
 
 export const light = {

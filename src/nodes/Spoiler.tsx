@@ -1,19 +1,11 @@
 import { wrappingInputRule } from "prosemirror-inputrules";
 import toggleWrap from "../commands/toggleWrap";
-import { WarningIcon, InfoIcon, StarredIcon } from "outline-icons";
+import { NextIcon } from "outline-icons";
 import * as React from "react";
 import ReactDOM from "react-dom";
 import Node from "./Node";
 
 export default class Spoiler extends Node {
-  get styleOptions() {
-    return Object.entries({
-      info: this.options.dictionary.info,
-      warning: this.options.dictionary.warning,
-      tip: this.options.dictionary.tip,
-    });
-  }
-
   get name() {
     return "container_spoiler";
   }
@@ -22,67 +14,66 @@ export default class Spoiler extends Node {
     return {
       attrs: {
         style: {
-          default: "info",
+          default: "closed",
         },
       },
       content: "block+",
       group: "block",
       defining: true,
-      draggable: true,
+      draggable: false,
       parseDOM: [
         {
-          tag: "div.notice-block",
+          tag: "div.spoiler-block",
           preserveWhitespace: "full",
           contentElement: "div:last-child",
-          getAttrs: (dom: HTMLDivElement) => ({
-            style: dom.className.includes("tip")
-              ? "tip"
-              : dom.className.includes("warning")
-              ? "warning"
-              : undefined,
-          }),
         },
       ],
       toDOM: node => {
-        // const select = document.createElement("select");
-        // select.addEventListener("change", this.handleStyleChange);
+        const isReadMode = this.editor.props.readOnly;
 
-        // this.styleOptions.forEach(([key, label]) => {
-        //   const option = document.createElement("option");
-        //   option.value = key;
-        //   option.innerText = label;
-        //   option.selected = node.attrs.style === key;
-        //   select.appendChild(option);
-        // });
+        const icon = document.createElement("div");
+        icon.className = "icon";
+        const component = <NextIcon />;
+        ReactDOM.render(component, icon);
 
-        // let component;
+        if (!isReadMode) {
+          return [
+            "div",
+            { class: "spoiler-block" },
+            icon,
+            ["div", { class: "content" }, 0],
+          ];
+        }
 
-        // if (node.attrs.style === "tip") {
-        //   component = <StarredIcon color="currentColor" />;
-        // } else if (node.attrs.style === "warning") {
-        //   component = <WarningIcon color="currentColor" />;
-        // } else {
-        //   component = <InfoIcon color="currentColor" />;
-        // }
+        const isOpened = node.attrs.style === "opened";
+        const title = document.createElement("div");
+        title.className = "title";
+        title.innerText = node.content.content[0].textContent;
+        title.addEventListener("click", this.handleVisibleChange(node));
+        icon.addEventListener("click", this.handleVisibleChange(node));
+        icon.style.cursor = "pointer";
 
-        // const icon = document.createElement("div");
-        // icon.className = "icon";
-        // ReactDOM.render(component, icon);
+        if (isOpened) icon.style.transform = "rotate(90deg)";
 
-        return [
-          "div",
-          { class: `notice-block ${node.attrs.style}` },
-          ["div", { class: "content" }, 0],
-        ];
+        if (isOpened) {
+          return [
+            "div",
+            { class: `spoiler-block ${node.attrs.style}` },
+            icon,
+            ["div", { class: "content" }, 0],
+          ];
+        } else {
+          return [
+            "div",
+            { class: `spoiler-block ${node.attrs.style}` },
+            ["div", { style: "display: flex;" }, icon, title],
+          ];
+        }
       },
     };
   }
 
-  commands({ type }) {
-    return attrs => toggleWrap(type, attrs);
-  }
-
-  handleStyleChange = event => {
+  handleVisibleChange = node => event => {
     const { view } = this.editor;
     const { tr } = view.state;
     const element = event.target;
@@ -91,18 +82,22 @@ export default class Spoiler extends Node {
 
     if (result) {
       const transaction = tr.setNodeMarkup(result.inside, undefined, {
-        style: element.value,
+        style: node.attrs.style === "opened" ? "closed" : "opened",
       });
       view.dispatch(transaction);
     }
   };
+
+  commands({ type }) {
+    return attrs => toggleWrap(type, attrs);
+  }
 
   inputRules({ type }) {
     return [wrappingInputRule(/^!!!$/, type)];
   }
 
   toMarkdown(state, node) {
-    state.write("\n!!!" + (node.attrs.style || "info") + "\n");
+    state.write("\n!!!\n");
     state.renderContent(node);
     state.ensureNewLine();
     state.write("!!!");
@@ -112,7 +107,6 @@ export default class Spoiler extends Node {
   parseMarkdown() {
     return {
       block: "container_spoiler",
-      getAttrs: tok => ({ style: tok.info }),
     };
   }
 }

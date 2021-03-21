@@ -14,6 +14,7 @@ import {
   WarningIcon,
   InfoIcon,
   LinkIcon,
+  NextIcon,
 } from "outline-icons";
 import { MenuItem } from "../types";
 import baseDictionary from "../dictionary";
@@ -115,6 +116,13 @@ export default function blockMenuItems(
       keywords: "link url uri href",
     },
     {
+      name: "container_spoiler",
+      title: dictionary.spoiler,
+      icon: NextIcon,
+      keywords: "container_spoiler card suggestion",
+      attrs: { style: "closed" },
+    },
+    {
       name: "separator",
     },
     {
@@ -136,13 +144,6 @@ export default function blockMenuItems(
       title: dictionary.tipNotice,
       icon: StarredIcon,
       keywords: "container_notice card suggestion",
-      attrs: { style: "tip" },
-    },
-    {
-      name: "container_spoiler",
-      title: "Spoiler",
-      icon: StarredIcon,
-      keywords: "container_spoiler card suggestion",
       attrs: { style: "tip" },
     },
   ];
