@@ -186,6 +186,33 @@ Placeholder.args = {
   placeholder: "This is a custom placeholder…",
 };
 
+export const Spoiler = Template.bind({});
+Spoiler.args = {
+  defaultValue: `# Spoiler
+\\
+!!!
+Hello world spoiler
+!!!
+`,
+};
+
+export const SpoilerReadOnly = Template.bind({});
+SpoilerReadOnly.args = {
+  readOnly: true,
+  defaultValue: `# Spoiler in read mode
+\\
+!!!
+Hello world spoiler
+
+Spoiler hidden body
+# Heading
+
+- Item 1
+- Item 2 
+!!!
+`,
+};
+
 export const Focused = Template.bind({});
 Focused.args = {
   autoFocus: true,

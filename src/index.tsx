@@ -69,6 +69,7 @@ import Placeholder from "./plugins/Placeholder";
 import SmartText from "./plugins/SmartText";
 import TrailingNode from "./plugins/TrailingNode";
 import MarkdownPaste from "./plugins/MarkdownPaste";
+import Spoiler from "./nodes/Spoiler";
 
 export { schema, parser, serializer } from "./server";
 
@@ -338,6 +339,9 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
         }),
         new MaxLength({
           maxLength: this.props.maxLength,
+        }),
+        new Spoiler({
+          dictionary,
         }),
         ...this.props.extensions,
       ],
@@ -1557,6 +1561,35 @@ const StyledEditor = styled("div")<{
     blockquote {
       font-family: "SF Pro Text", ${props => props.theme.fontFamily};
     }
+  }
+
+  .spoiler-block {
+    display: flex;
+    align-items: center;
+    background: ${props => props.theme.spoilerBackground};
+    color: ${props => props.theme.text};
+    border-radius: 4px;
+    padding: 8px 16px;
+    margin: 8px 0;
+  }
+
+  .spoiler-block .content {
+    flex-grow: 1;
+  }
+
+  .spoiler-block .title {
+    text-decoration-line: underline;
+    text-decoration-style: dotted;
+    cursor: pointer;
+  }
+
+  .spoiler-block .icon {
+    width: 24px;
+    height: 24px;
+    align-self: flex-start;
+    margin-right: 4px;
+    position: relative;
+    top: 1px;
   }
 `;
 
