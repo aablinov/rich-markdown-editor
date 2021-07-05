@@ -1,8 +1,26 @@
 import { Plugin } from "prosemirror-state";
+import { isInTable } from "prosemirror-tables";
 import { toggleMark } from "prosemirror-commands";
 import Extension from "../lib/Extension";
 import isUrl from "../lib/isUrl";
 import isInCode from "../queries/isInCode";
+
+/**
+ * Add support for additional syntax that users paste even though it isn't
+ * supported by the markdown parser directly by massaging the text content.
+ *
+ * @param text The incoming pasted plain text
+ */
+function normalizePastedMarkdown(text: string): string {
+  // find checkboxes not contained in a list and wrap them in list items
+  const CHECKBOX_REGEX = /^\s?(\[(X|\s|_|-)\]\s(.*)?)/gim;
+
+  while (text.match(CHECKBOX_REGEX)) {
+    text = text.replace(CHECKBOX_REGEX, match => `- ${match.trim()}`);
+  }
+
+  return text;
+}
 
 export default class MarkdownPaste extends Extension {
   get name() {
@@ -23,7 +41,8 @@ export default class MarkdownPaste extends Extension {
             const html = event.clipboardData.getData("text/html");
             const { state, dispatch } = view;
 
-            // first check if the clipboard contents can be parsed as a url
+            // first check if the clipboard contents can be parsed as a single
+            // url, this is mainly for allowing pasted urls to become embeds
             if (isUrl(text)) {
               // just paste the link mark directly onto the selected text
               if (!state.selection.empty) {
@@ -37,7 +56,7 @@ export default class MarkdownPaste extends Extension {
               // Is this link embeddable? Create an embed!
               const { embeds } = this.editor.props;
 
-              if (embeds) {
+              if (embeds && !isInTable(state)) {
                 for (const embed of embeds) {
                   const matches = embed.matcher(text);
                   if (matches) {
@@ -64,18 +83,26 @@ export default class MarkdownPaste extends Extension {
               return true;
             }
 
-            // otherwise, if we have html on the clipboard then fallback to the
-            // default HTML parser behavior that comes with Prosemirror.
-            if (text.length === 0 || html) return false;
+            // otherwise, if we have html on the clipboard that looks like it
+            // came from Prosemirror then use the default HTML parser behavior
+            if (text.length === 0 || (html && html.includes("data-pm-slice"))) {
+              return false;
+            }
 
             event.preventDefault();
 
+            // If the users selection is currently in a code block then paste
+            // as plain text, ignore all formatting.
             if (isInCode(view.state)) {
               view.dispatch(view.state.tr.insertText(text));
               return true;
             }
 
-            const paste = this.editor.parser.parse(text);
+            // If we've gotten this far then treat the plain text content of the
+            // clipboard as possible markdown and use the parser
+            const paste = this.editor.parser.parse(
+              normalizePastedMarkdown(text)
+            );
             const slice = paste.slice(0);
 
             const transaction = view.state.tr.replaceSelection(slice);

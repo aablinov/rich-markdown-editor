@@ -14,6 +14,7 @@ import powershell from "refractor/lang/powershell";
 import ruby from "refractor/lang/ruby";
 import sql from "refractor/lang/sql";
 import typescript from "refractor/lang/typescript";
+import yaml from "refractor/lang/yaml";
 import { setBlockType } from "prosemirror-commands";
 import { textblockTypeInputRule } from "prosemirror-inputrules";
 import copy from "copy-to-clipboard";
@@ -21,6 +22,9 @@ import Prism, { LANGUAGES } from "../plugins/Prism";
 import isInCode from "../queries/isInCode";
 import Node from "./Node";
 import { ToastType } from "../types";
+
+const PERSISTENCE_KEY = "rme-code-language";
+const DEFAULT_LANGUAGE = "javascript";
 
 [
   bash,
@@ -38,6 +42,7 @@ import { ToastType } from "../types";
   ruby,
   sql,
   typescript,
+  yaml,
 ].forEach(refractor.register);
 
 export default class CodeFence extends Node {
@@ -53,7 +58,7 @@ export default class CodeFence extends Node {
     return {
       attrs: {
         language: {
-          default: "javascript",
+          default: DEFAULT_LANGUAGE,
         },
       },
       content: "text*",
@@ -79,7 +84,7 @@ export default class CodeFence extends Node {
         const button = document.createElement("button");
         button.innerText = "Copy";
         button.type = "button";
-        button.addEventListener("click", this.handleCopyToClipboard(node));
+        button.addEventListener("click", this.handleCopyToClipboard);
 
         const select = document.createElement("select");
         select.addEventListener("change", this.handleLanguageChange);
@@ -104,7 +109,10 @@ export default class CodeFence extends Node {
   }
 
   commands({ type }) {
-    return () => setBlockType(type);
+    return () =>
+      setBlockType(type, {
+        language: localStorage?.getItem(PERSISTENCE_KEY) || DEFAULT_LANGUAGE,
+      });
   }
 
   keys({ type }) {
@@ -127,17 +135,25 @@ export default class CodeFence extends Node {
     };
   }
 
-  handleCopyToClipboard(node) {
-    return () => {
-      copy(node.textContent);
-      if (this.options.onShowToast) {
-        this.options.onShowToast(
-          this.options.dictionary.codeCopied,
-          ToastType.Info
-        );
+  handleCopyToClipboard = event => {
+    const { view } = this.editor;
+    const element = event.target;
+    const { top, left } = element.getBoundingClientRect();
+    const result = view.posAtCoords({ top, left });
+
+    if (result) {
+      const node = view.state.doc.nodeAt(result.pos);
+      if (node) {
+        copy(node.textContent);
+        if (this.options.onShowToast) {
+          this.options.onShowToast(
+            this.options.dictionary.codeCopied,
+            ToastType.Info
+          );
+        }
       }
-    };
-  }
+    }
+  };
 
   handleLanguageChange = event => {
     const { view } = this.editor;
@@ -147,20 +163,18 @@ export default class CodeFence extends Node {
     const result = view.posAtCoords({ top, left });
 
     if (result) {
+      const language = element.value;
       const transaction = tr.setNodeMarkup(result.inside, undefined, {
-        language: element.value,
+        language,
       });
       view.dispatch(transaction);
+
+      localStorage?.setItem(PERSISTENCE_KEY, language);
     }
   };
 
   get plugins() {
-    return [
-      Prism({
-        name: this.name,
-        deferred: !this.options.initialReadOnly,
-      }),
-    ];
+    return [Prism({ name: this.name })];
   }
 
   inputRules({ type }) {

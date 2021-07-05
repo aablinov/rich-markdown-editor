@@ -1,6 +1,7 @@
 import refractor from "refractor/core";
 import flattenDeep from "lodash/flattenDeep";
 import { Plugin, PluginKey } from "prosemirror-state";
+import { Node } from "prosemirror-model";
 import { Decoration, DecorationSet } from "prosemirror-view";
 import { findBlockNodes } from "prosemirror-utils";
 
@@ -21,6 +22,7 @@ export const LANGUAGES = {
   ruby: "Ruby",
   sql: "SQL",
   typescript: "TypeScript",
+  yaml: "YAML",
 };
 
 type ParsedNode = {
@@ -28,9 +30,11 @@ type ParsedNode = {
   classes: string[];
 };
 
-function getDecorations({ doc, name }) {
+const cache: Record<number, { node: Node; decorations: Decoration[] }> = {};
+
+function getDecorations({ doc, name }: { doc: Node; name: string }) {
   const decorations: Decoration[] = [];
-  const blocks = findBlockNodes(doc).filter(
+  const blocks: { node: Node; pos: number }[] = findBlockNodes(doc).filter(
     item => item.node.type.name === name
   );
 
@@ -58,57 +62,81 @@ function getDecorations({ doc, name }) {
       return;
     }
 
-    const nodes = refractor.highlight(block.node.textContent, language);
+    if (!cache[block.pos] || !cache[block.pos].node.eq(block.node)) {
+      const nodes = refractor.highlight(block.node.textContent, language);
+      const _decorations = flattenDeep(parseNodes(nodes))
+        .map((node: ParsedNode) => {
+          const from = startPos;
+          const to = from + node.text.length;
 
-    flattenDeep(parseNodes(nodes))
-      .map((node: ParsedNode) => {
-        const from = startPos;
-        const to = from + node.text.length;
+          startPos = to;
 
-        startPos = to;
+          return {
+            ...node,
+            from,
+            to,
+          };
+        })
+        .filter(node => node.classes && node.classes.length)
+        .map(node =>
+          Decoration.inline(node.from, node.to, {
+            class: node.classes.join(" "),
+          })
+        );
 
-        return {
-          ...node,
-          from,
-          to,
-        };
-      })
-      .forEach(node => {
-        const decoration = Decoration.inline(node.from, node.to, {
-          class: (node.classes || []).join(" "),
-        });
-        decorations.push(decoration);
-      });
+      cache[block.pos] = {
+        node: block.node,
+        decorations: _decorations,
+      };
+    }
+    cache[block.pos].decorations.forEach(decoration => {
+      decorations.push(decoration);
+    });
   });
+
+  Object.keys(cache)
+    .filter(pos => !blocks.find(block => block.pos === Number(pos)))
+    .forEach(pos => {
+      delete cache[Number(pos)];
+    });
 
   return DecorationSet.create(doc, decorations);
 }
 
-export default function Prism({ name, deferred = true }) {
+export default function Prism({ name }) {
+  let highlighted = false;
+
   return new Plugin({
     key: new PluginKey("prism"),
     state: {
-      init: (_, { doc }) => {
-        if (deferred) return;
-
-        return getDecorations({ doc, name });
+      init: (_: Plugin, { doc }) => {
+        return DecorationSet.create(doc, []);
       },
       apply: (transaction, decorationSet, oldState, state) => {
-        // TODO: find way to cache decorations
-        // see: https://discuss.prosemirror.net/t/how-to-update-multiple-inline-decorations-on-node-change/1493
-
-        const deferredInit = !decorationSet;
         const nodeName = state.selection.$head.parent.type.name;
         const previousNodeName = oldState.selection.$head.parent.type.name;
         const codeBlockChanged =
           transaction.docChanged && [nodeName, previousNodeName].includes(name);
 
-        if (deferredInit || codeBlockChanged) {
+        if (!highlighted || codeBlockChanged) {
+          highlighted = true;
           return getDecorations({ doc: transaction.doc, name });
         }
 
         return decorationSet.map(transaction.mapping, transaction.doc);
       },
+    },
+    view: view => {
+      if (!highlighted) {
+        // we don't highlight code blocks on the first render as part of mounting
+        // as it's expensive (relative to the rest of the document). Instead let
+        // it render un-highlighted and then trigger a defered render of Prism
+        // by updating the plugins metadata
+        setTimeout(() => {
+          view.dispatch(view.state.tr.setMeta("prism", { loaded: true }));
+        }, 10);
+      }
+      return {};
     },
     props: {
       decorations(state) {

@@ -71,7 +71,7 @@ import TrailingNode from "./plugins/TrailingNode";
 import MarkdownPaste from "./plugins/MarkdownPaste";
 import Spoiler from "./nodes/Spoiler";
 
-export { schema, parser, serializer } from "./server";
+export { schema, parser, serializer, renderToHtml } from "./server";
 
 export { default as Extension } from "./lib/Extension";
 
@@ -83,11 +83,41 @@ export type Props = {
   defaultValue: string;
   placeholder: string;
   extensions: Extension[];
+  disableExtensions?: (
+    | "strong"
+    | "code_inline"
+    | "highlight"
+    | "em"
+    | "link"
+    | "placeholder"
+    | "strikethrough"
+    | "underline"
+    | "blockquote"
+    | "bullet_list"
+    | "checkbox_item"
+    | "checkbox_list"
+    | "code_block"
+    | "code_fence"
+    | "embed"
+    | "br"
+    | "heading"
+    | "hr"
+    | "image"
+    | "list_item"
+    | "container_notice"
+    | "ordered_list"
+    | "paragraph"
+    | "table"
+    | "td"
+    | "th"
+    | "tr"
+  )[];
   autoFocus?: boolean;
   readOnly?: boolean;
   readOnlyWriteCheckboxes?: boolean;
   dictionary?: Partial<typeof baseDictionary>;
   dark?: boolean;
+  dir?: string;
   theme?: typeof theme;
   template?: boolean;
   headingsOffset?: number;
@@ -118,6 +148,7 @@ export type Props = {
 };
 
 type State = {
+  isRTL: boolean;
   isEditorFocused: boolean;
   selectionMenuOpen: boolean;
   blockMenuOpen: boolean;
@@ -132,6 +163,7 @@ type Step = {
 class RichMarkdownEditor extends React.PureComponent<Props, State> {
   static defaultProps = {
     defaultValue: "",
+    dir: "auto",
     placeholder: "Write something nice…",
     onImageUploadStart: () => {
       // no default behavior
@@ -148,6 +180,7 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
   };
 
   state = {
+    isRTL: false,
     isEditorFocused: false,
     selectionMenuOpen: false,
     blockMenuOpen: false,
@@ -179,6 +212,8 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
       this.scrollToAnchor(this.props.scrollTo);
     }
 
+    this.calculateDir();
+
     if (this.props.readOnly) return;
 
     if (this.props.autoFocus) {
@@ -209,6 +244,10 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
     // is set to true
     if (prevProps.readOnly && !this.props.readOnly && this.props.autoFocus) {
       this.focusAtEnd();
+    }
+
+    if (prevProps.dir !== this.props.dir) {
+      this.calculateDir();
     }
 
     if (
@@ -259,86 +298,94 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
     // adding nodes here? Update schema.ts for serialization on the server
     return new ExtensionManager(
       [
-        new Doc(),
-        new Text(),
-        new HardBreak(),
-        new Paragraph(),
-        new Blockquote(),
-        new CodeBlock({
-          dictionary,
-          initialReadOnly: this.props.readOnly,
-          onShowToast: this.props.onShowToast,
-        }),
-        new CodeFence({
-          dictionary,
-          initialReadOnly: this.props.readOnly,
-          onShowToast: this.props.onShowToast,
-        }),
-        new CheckboxList(),
-        new CheckboxItem(),
-        new BulletList(),
-        new Embed(),
-        new ListItem(),
-        new Notice({
-          dictionary,
-        }),
-        new Heading({
-          dictionary,
-          onShowToast: this.props.onShowToast,
-          offset: this.props.headingsOffset,
-        }),
-        new HorizontalRule(),
-        new Image({
-          dictionary,
-          uploadImage: this.props.uploadImage,
-          onImageUploadStart: this.props.onImageUploadStart,
-          onImageUploadStop: this.props.onImageUploadStop,
-          onShowToast: this.props.onShowToast,
-        }),
-        new Table(),
-        new TableCell({
-          onSelectTable: this.handleSelectTable,
-          onSelectRow: this.handleSelectRow,
-        }),
-        new TableHeadCell({
-          onSelectColumn: this.handleSelectColumn,
-        }),
-        new TableRow(),
-        new Bold(),
-        new Code(),
-        new Highlight(),
-        new Italic(),
-        new TemplatePlaceholder(),
-        new Underline(),
-        new Link({
-          onKeyboardShortcut: this.handleOpenLinkMenu,
-          onClickLink: this.props.onClickLink,
-          onClickHashtag: this.props.onClickHashtag,
-          onHoverLink: this.props.onHoverLink,
-        }),
-        new Strikethrough(),
-        new OrderedList(),
-        new History(),
-        new SmartText(),
-        new TrailingNode(),
-        new MarkdownPaste(),
-        new Keys({
-          onBlur: this.handleEditorBlur,
-          onFocus: this.handleEditorFocus,
-          onSave: this.handleSave,
-          onSaveAndExit: this.handleSaveAndExit,
-          onCancel: this.props.onCancel,
-        }),
-        new BlockMenuTrigger({
-          dictionary,
-          onOpen: this.handleOpenBlockMenu,
-          onClose: this.handleCloseBlockMenu,
-        }),
-        new Placeholder({
-          placeholder: this.props.placeholder,
-        }),
-        new MaxLength({
-          maxLength: this.props.maxLength,
+        ...[
+          new Doc(),
+          new Text(),
+          new HardBreak(),
+          new Paragraph(),
+          new Blockquote(),
+          new CodeBlock({
+            dictionary,
+            onShowToast: this.props.onShowToast,
+          }),
+          new CodeFence({
+            dictionary,
+            onShowToast: this.props.onShowToast,
+          }),
+          new CheckboxList(),
+          new CheckboxItem(),
+          new BulletList(),
+          new Embed(),
+          new ListItem(),
+          new Notice({
+            dictionary,
+          }),
+          new Heading({
+            dictionary,
+            onShowToast: this.props.onShowToast,
+            offset: this.props.headingsOffset,
+          }),
+          new HorizontalRule(),
+          new Image({
+            dictionary,
+            uploadImage: this.props.uploadImage,
+            onImageUploadStart: this.props.onImageUploadStart,
+            onImageUploadStop: this.props.onImageUploadStop,
+            onShowToast: this.props.onShowToast,
+          }),
+          new Table(),
+          new TableCell({
+            onSelectTable: this.handleSelectTable,
+            onSelectRow: this.handleSelectRow,
+          }),
+          new TableHeadCell({
+            onSelectColumn: this.handleSelectColumn,
+          }),
+          new TableRow(),
+          new Bold(),
+          new Code(),
+          new Highlight(),
+          new Italic(),
+          new TemplatePlaceholder(),
+          new Underline(),
+          new Link({
+            onKeyboardShortcut: this.handleOpenLinkMenu,
+            onClickLink: this.props.onClickLink,
+            onClickHashtag: this.props.onClickHashtag,
+            onHoverLink: this.props.onHoverLink,
+          }),
+          new Strikethrough(),
+          new OrderedList(),
+          new History(),
+          new SmartText(),
+          new TrailingNode(),
+          new MarkdownPaste(),
+          new Keys({
+            onBlur: this.handleEditorBlur,
+            onFocus: this.handleEditorFocus,
+            onSave: this.handleSave,
+            onSaveAndExit: this.handleSaveAndExit,
+            onCancel: this.props.onCancel,
+          }),
+          new BlockMenuTrigger({
+            dictionary,
+            onOpen: this.handleOpenBlockMenu,
+            onClose: this.handleCloseBlockMenu,
+          }),
+          new Placeholder({
+            placeholder: this.props.placeholder,
+          }),
+          new MaxLength({
+            maxLength: this.props.maxLength,
+          }),
+        ].filter(extension => {
+          // Optionaly disable extensions
+          if (this.props.disableExtensions) {
+            return !(this.props.disableExtensions as string[]).includes(
+              extension.name
+            );
+          }
+          return true;
         }),
         new Spoiler({
           dictionary,
@@ -479,6 +526,8 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
           this.handleChange();
         }
 
+        this.calculateDir();
+
         // Because Prosemirror and React are not linked we must tell React that
         // a render is needed whenever the Prosemirror state changes.
         this.forceUpdate();
@@ -504,6 +553,18 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
       console.warn(`Attempted to scroll to invalid hash: ${hash}`, err);
     }
   }
+
+  calculateDir = () => {
+    if (!this.element) return;
+
+    const isRTL =
+      this.props.dir === "rtl" ||
+      getComputedStyle(this.element).direction === "rtl";
+
+    if (this.state.isRTL !== isRTL) {
+      this.setState({ isRTL });
+    }
+  };
 
   value = (): string => {
     return this.serializer.serialize(this.view.state.doc);
@@ -634,6 +695,7 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
 
   render = () => {
     const {
+      dir,
       readOnly,
       readOnlyWriteCheckboxes,
       style,
@@ -641,6 +703,7 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
       className,
       onKeyDown,
     } = this.props;
+    const { isRTL } = this.state;
     const dictionary = this.dictionary(this.props.dictionary);
 
     return (
@@ -650,11 +713,14 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
         className={className}
         align="flex-start"
         justify="center"
+        dir={dir}
         column
       >
         <ThemeProvider theme={this.theme()}>
           <React.Fragment>
             <StyledEditor
+              dir={dir}
+              rtl={isRTL}
               readOnly={readOnly}
               readOnlyWriteCheckboxes={readOnlyWriteCheckboxes}
               ref={ref => (this.element = ref)}
@@ -665,6 +731,7 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
                   view={this.view}
                   dictionary={dictionary}
                   commands={this.commands}
+                  rtl={isRTL}
                   isTemplate={this.props.template === true}
                   onOpen={this.handleOpenSelectionMenu}
                   onClose={this.handleCloseSelectionMenu}
@@ -688,6 +755,7 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
                   view={this.view}
                   commands={this.commands}
                   dictionary={dictionary}
+                  rtl={isRTL}
                   isActive={this.state.blockMenuOpen}
                   search={this.state.blockMenuSearch}
                   onClose={this.handleCloseBlockMenu}
@@ -708,6 +776,7 @@ class RichMarkdownEditor extends React.PureComponent<Props, State> {
 }
 
 const StyledEditor = styled("div")<{
+  rtl: boolean;
   readOnly?: boolean;
   readOnlyWriteCheckboxes?: boolean;
 }>`
@@ -718,7 +787,6 @@ const StyledEditor = styled("div")<{
   font-size: 1em;
   line-height: 1.7em;
   width: 100%;
-
   .ProseMirror {
     position: relative;
     outline: none;
@@ -754,6 +822,8 @@ const StyledEditor = styled("div")<{
   .image.placeholder {
     position: relative;
     background: ${props => props.theme.background};
+    margin-bottom: calc(28px + 1.2em);
+
     img {
       opacity: 0.5;
     }
@@ -799,8 +869,8 @@ const StyledEditor = styled("div")<{
   li.ProseMirror-selectednode:after {
     content: "";
     position: absolute;
-    left: -32px;
-    right: -2px;
+    left: ${props => (props.rtl ? "-2px" : "-32px")};
+    right: ${props => (props.rtl ? "-32px" : "-2px")};
     top: -2px;
     bottom: -2px;
     border: 2px solid ${props => props.theme.selected};
@@ -832,7 +902,7 @@ const StyledEditor = styled("div")<{
       color: ${props => props.theme.textSecondary};
       font-size: 13px;
       line-height: 0;
-      margin-left: -24px;
+      margin-${props => (props.rtl ? "right" : "left")}: -24px;
       width: 24px;
     }
 
@@ -887,7 +957,7 @@ const StyledEditor = styled("div")<{
   }
 
   .with-emoji {
-    margin-left: -1em;
+    margin-${props => (props.rtl ? "right" : "left")}: -1em;
   }
 
   .heading-anchor {
@@ -898,13 +968,13 @@ const StyledEditor = styled("div")<{
     background: none;
     border: 0;
     outline: none;
-    padding: 2px 12px 2px 4px;
+    padding: ${props => (props.rtl ? "2px 2px 12px 4px" : "2px 12px 2px 4px")};
     margin: 0;
     transition: opacity 100ms ease-in-out;
     font-family: ${props => props.theme.fontFamilyMono};
     font-size: 22px;
     line-height: 0;
-    margin-left: -24px;
+    margin-${props => (props.rtl ? "right" : "left")}: -24px;
     width: 24px;
 
     &:focus,
@@ -955,7 +1025,7 @@ const StyledEditor = styled("div")<{
     width: 24px;
     height: 24px;
     align-self: flex-start;
-    margin-right: 4px;
+    margin-${props => (props.rtl ? "left" : "right")}: 4px;
     position: relative;
     top: 1px;
   }
@@ -991,7 +1061,7 @@ const StyledEditor = styled("div")<{
       width: 3px;
       border-radius: 1px;
       position: absolute;
-      margin-left: -16px;
+      margin-${props => (props.rtl ? "right" : "left")}: -16px;
       top: 0;
       bottom: 0;
       background: ${props => props.theme.quote};
@@ -1030,12 +1100,12 @@ const StyledEditor = styled("div")<{
 
   ul,
   ol {
-    margin: 0 0.1em 0 -26px;
-    padding: 0 0 0 44px;
+    margin: ${props => (props.rtl ? "0 -26px 0 0.1em" : "0 0.1em 0 -26px")};
+    padding: ${props => (props.rtl ? "0 44px 0 0" : "0 0 0 44px")};
 
     ul,
     ol {
-      margin-right: -24px;
+      margin-${props => (props.rtl ? "left" : "right")}: -24px;
     }
   }
 
@@ -1050,12 +1120,17 @@ const StyledEditor = styled("div")<{
   ul.checkbox_list {
     list-style: none;
     padding: 0;
-    margin: 0 0 0 -24px;
+    margin: ${props => (props.rtl ? "0 -24px 0 0" : "0 0 0 -24px")};
   }
 
   ul li,
   ol li {
     position: relative;
+    white-space: initial;
+
+    p {
+      white-space: pre-wrap;
+    }
 
     > div {
       width: 100%;
@@ -1064,7 +1139,7 @@ const StyledEditor = styled("div")<{
 
   ul.checkbox_list li {
     display: flex;
-    padding-left: 24px;
+    padding-${props => (props.rtl ? "right" : "left")}: 24px;
   }
 
   ul.checkbox_list li.checked > div > p {
@@ -1081,7 +1156,7 @@ const StyledEditor = styled("div")<{
     width: 24px;
     height: 24px;
     position: absolute;
-    left: -40px;
+    ${props => (props.rtl ? "right" : "left")}: -40px;
     top: 2px;
     opacity: 0;
     transition: opacity 200ms ease-in-out;
@@ -1098,7 +1173,7 @@ const StyledEditor = styled("div")<{
   }
 
   ul.checkbox_list li::before {
-    left: 0;
+    ${props => (props.rtl ? "right" : "left")}: 0;
   }
 
   ul.checkbox_list li input {
@@ -1106,7 +1181,7 @@ const StyledEditor = styled("div")<{
       props.readOnly && !props.readOnlyWriteCheckboxes ? "none" : "initial"};
     opacity: ${props =>
       props.readOnly && !props.readOnlyWriteCheckboxes ? 0.75 : 1};
-    margin: 0.5em 0.5em 0 0;
+    margin: ${props => (props.rtl ? "0.5em 0 0 0.5em" : "0.5em 0.5em 0 0")};
     width: 14px;
     height: 14px;
   }
@@ -1117,9 +1192,27 @@ const StyledEditor = styled("div")<{
   }
 
   hr {
-    height: 0;
+    position: relative;
+    height: 1em;
     border: 0;
+  }
+
+  hr:before {
+    content: "";
+    display: block;
+    position: absolute;
     border-top: 1px solid ${props => props.theme.horizontalRule};
+    top: 0.5em;
+    left: 0;
+    right: 0;
+  }
+
+  hr.page-break {
+    page-break-after: always;
+  }
+
+  hr.page-break:before {
+    border-top: 1px dashed ${props => props.theme.horizontalRule};
   }
 
   code {
@@ -1156,7 +1249,20 @@ const StyledEditor = styled("div")<{
       padding: 2px;
       z-index: 1;
       top: 4px;
-      right: 4px;
+    }
+
+    &.code-block {
+      select,
+      button {
+        right: 4px;
+      }
+    }
+
+    &.notice-block {
+      select,
+      button {
+        ${props => (props.rtl ? "left" : "right")}: 4px;
+      }
     }
 
     button {
@@ -1339,7 +1445,7 @@ const StyledEditor = styled("div")<{
       border: 1px solid ${props => props.theme.tableDivider};
       position: relative;
       padding: 4px 8px;
-      text-align: left;
+      text-align: ${props => (props.rtl ? "right" : "left")};
       min-width: 100px;
     }
 
@@ -1362,7 +1468,7 @@ const StyledEditor = styled("div")<{
         cursor: pointer;
         position: absolute;
         top: -16px;
-        left: 0;
+        ${props => (props.rtl ? "right" : "left")}: 0;
         width: 100%;
         height: 12px;
         background: ${props => props.theme.tableDivider};
@@ -1374,10 +1480,10 @@ const StyledEditor = styled("div")<{
         background: ${props => props.theme.text};
       }
       &.first::after {
-        border-top-left-radius: 3px;
+        border-top-${props => (props.rtl ? "right" : "left")}-radius: 3px;
       }
       &.last::after {
-        border-top-right-radius: 3px;
+        border-top-${props => (props.rtl ? "left" : "right")}-radius: 3px;
       }
       &.selected::after {
         background: ${props => props.theme.tableSelected};
@@ -1389,12 +1495,13 @@ const StyledEditor = styled("div")<{
         content: "";
         cursor: pointer;
         position: absolute;
-        left: -16px;
+        ${props => (props.rtl ? "right" : "left")}: -16px;
         top: 0;
         height: 100%;
         width: 12px;
         background: ${props => props.theme.tableDivider};
-        border-right: 3px solid ${props => props.theme.background};
+        border-${props => (props.rtl ? "left" : "right")}: 3px solid;
+        border-color: ${props => props.theme.background};
         display: ${props => (props.readOnly ? "none" : "block")};
       }
 
@@ -1402,10 +1509,10 @@ const StyledEditor = styled("div")<{
         background: ${props => props.theme.text};
       }
       &.first::after {
-        border-top-left-radius: 3px;
+        border-top-${props => (props.rtl ? "right" : "left")}-radius: 3px;
       }
       &.last::after {
-        border-bottom-left-radius: 3px;
+        border-bottom-${props => (props.rtl ? "right" : "left")}-radius: 3px;
       }
       &.selected::after {
         background: ${props => props.theme.tableSelected};
@@ -1423,7 +1530,7 @@ const StyledEditor = styled("div")<{
         border: 2px solid ${props => props.theme.background};
         position: absolute;
         top: -18px;
-        left: -18px;
+        ${props => (props.rtl ? "right" : "left")}: -18px;
         display: ${props => (props.readOnly ? "none" : "block")};
       }
 
@@ -1471,10 +1578,10 @@ const StyledEditor = styled("div")<{
   .scrollable {
     overflow-y: hidden;
     overflow-x: auto;
-    padding-left: 1em;
-    margin-left: -1em;
-    border-left: 1px solid transparent;
-    border-right: 1px solid transparent;
+    padding-${props => (props.rtl ? "right" : "left")}: 1em;
+    margin-${props => (props.rtl ? "right" : "left")}: -1em;
+    border-${props => (props.rtl ? "right" : "left")}: 1px solid transparent;
+    border-${props => (props.rtl ? "left" : "right")}: 1px solid transparent;
     transition: border 250ms ease-in-out 0s;
   }
 
@@ -1482,11 +1589,11 @@ const StyledEditor = styled("div")<{
     position: absolute;
     top: 0;
     bottom: 0;
-    left: -1em;
+    ${props => (props.rtl ? "right" : "left")}: -1em;
     width: 16px;
     transition: box-shadow 250ms ease-in-out;
     border: 0px solid transparent;
-    border-left-width: 1em;
+    border-${props => (props.rtl ? "right" : "left")}-width: 1em;
     pointer-events: none;
 
     &.left {
@@ -1514,7 +1621,7 @@ const StyledEditor = styled("div")<{
     border: 0;
     padding: 0;
     margin-top: 1px;
-    margin-left: -24px;
+    margin-${props => (props.rtl ? "right" : "left")}: -24px;
 
     &:hover,
     &:focus {
@@ -1527,6 +1634,10 @@ const StyledEditor = styled("div")<{
   @media print {
     .block-menu-trigger {
       display: none;
+    }
+
+    .page-break {
+      opacity: 0;
     }
   }
 

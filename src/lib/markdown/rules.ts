@@ -12,11 +12,12 @@ export default function rules({ embeds }) {
   return markdownit("default", {
     breaks: false,
     html: false,
+    linkify: true,
   })
     .use(embedsPlugin(embeds))
     .use(breakPlugin)
     .use(checkboxPlugin)
-    .use(markPlugin({ delim: "==", mark: "mark" }))
+    .use(markPlugin({ delim: "==", mark: "highlight" }))
     .use(markPlugin({ delim: "!!", mark: "placeholder" }))
     .use(underlinesPlugin)
     .use(tablesPlugin)

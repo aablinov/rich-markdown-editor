@@ -1,5 +1,5 @@
 import Editor from "./index";
-import { debounce } from "lodash";
+import debounce from "lodash/debounce";
 import { Props } from "..";
 import React from "react";
 import { Story, Meta } from "@storybook/react/types-6-0";
@@ -16,6 +16,10 @@ export default {
     onShowToast: { action: "toast" },
     onFocus: { action: "focused" },
     onBlur: { action: "blurred" },
+    disableExtensions: { control: "array" },
+  },
+  args: {
+    disableExtensions: [],
   },
 } as Meta;
 
@@ -186,31 +190,10 @@ Placeholder.args = {
   placeholder: "This is a custom placeholder…",
 };
 
-export const Spoiler = Template.bind({});
-Spoiler.args = {
-  defaultValue: `# Spoiler
-\\
-!!!
-Hello world spoiler
-!!!
-`,
-};
-
-export const SpoilerReadOnly = Template.bind({});
-SpoilerReadOnly.args = {
-  readOnly: true,
-  defaultValue: `# Spoiler in read mode
-\\
-!!!
-Hello world spoiler
-
-Spoiler hidden body
-# Heading
-
-- Item 1
-- Item 2 
-!!!
-`,
+export const Images = Template.bind({});
+Images.args = {
+  defaultValue: `# Images
+![A caption](https://upload.wikimedia.org/wikipedia/commons/0/06/Davide-ragusa-gcDwzUGuUoI-unsplash.jpg)`,
 };
 
 export const Focused = Template.bind({});
@@ -227,4 +210,37 @@ Dark.args = {
   defaultValue: `# Dark
 
 There's a customizable dark theme too`,
+};
+
+export const RTL = Template.bind({});
+RTL.args = {
+  dir: "rtl",
+  defaultValue: `# خوش آمدید
+
+متن نمونه برای نمایش پشتیبانی از زبان‌های RTL نظیر فارسی، عربی، عبری و ...
+
+\\
+- [x] آیتم اول
+- [ ] آیتم دوم`,
+};
+
+export const Spoiler = Template.bind({});
+Spoiler.args = {
+  defaultValue: `# Spoiler
+\\
+!!!
+Hello world spoiler
+!!!
+`,
+};
+
+export const SpoilerReadOnly = Template.bind({});
+Spoiler.args = {
+  readOnly: true,
+  defaultValue: `# Spoiler
+\\
+!!!
+Hello world spoiler
+!!!
+`,
 };

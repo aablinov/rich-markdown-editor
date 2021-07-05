@@ -15,7 +15,15 @@ import baseDictionary from "../dictionary";
 
 const SSR = typeof window === "undefined";
 
+const defaultPosition = {
+  left: -1000,
+  top: 0,
+  bottom: undefined,
+  isAbove: false,
+};
+
 type Props = {
+  rtl: boolean;
   isActive: boolean;
   commands: Record<string, any>;
   dictionary: typeof baseDictionary;
@@ -249,18 +257,12 @@ class BlockMenu extends React.Component<Props, State> {
       onImageUploadStop,
       onShowToast,
     } = this.props;
-    const { state, dispatch } = view;
+    const { state } = view;
     const parent = findParentNode(node => !!node)(state.selection);
 
-    if (parent) {
-      dispatch(
-        state.tr.insertText(
-          "",
-          parent.pos,
-          parent.pos + parent.node.textContent.length + 1
-        )
-      );
+    this.clearSearch();
 
+    if (parent) {
       insertFiles(view, event, parent.pos, files, {
         uploadImage,
         onImageUploadStart,
@@ -282,13 +284,7 @@ class BlockMenu extends React.Component<Props, State> {
     const parent = findParentNode(node => !!node)(state.selection);
 
     if (parent) {
-      dispatch(
-        state.tr.insertText(
-          "",
-          parent.pos,
-          parent.pos + parent.node.textContent.length + 1
-        )
-      );
+      dispatch(state.tr.insertText("", parent.pos, state.selection.to));
     }
   }
 
@@ -339,10 +335,17 @@ class BlockMenu extends React.Component<Props, State> {
   calculatePosition(props) {
     const { view } = props;
     const { selection } = view.state;
-    const startPos = view.coordsAtPos(selection.$from.pos);
+    let startPos;
+    try {
+      startPos = view.coordsAtPos(selection.from);
+    } catch (err) {
+      console.warn(err);
+      return defaultPosition;
+    }
+
     const ref = this.menuRef.current;
     const offsetHeight = ref ? ref.offsetHeight : 0;
-    const paragraph = view.domAtPos(selection.$from.pos);
+    const paragraph = view.domAtPos(selection.from);
 
     if (
       !props.isActive ||
@@ -350,28 +353,28 @@ class BlockMenu extends React.Component<Props, State> {
       !paragraph.node.getBoundingClientRect ||
       SSR
     ) {
-      return {
-        left: -1000,
-        top: 0,
-        bottom: undefined,
-        isAbove: false,
-      };
+      return defaultPosition;
     }
 
     const { left } = this.caretPosition;
-    const { top, bottom } = paragraph.node.getBoundingClientRect();
+    const { top, bottom, right } = paragraph.node.getBoundingClientRect();
     const margin = 24;
+
+    let leftPos = left + window.scrollX;
+    if (props.rtl && ref) {
+      leftPos = right - ref.scrollWidth;
+    }
 
     if (startPos.top - offsetHeight > margin) {
       return {
-        left: left + window.scrollX,
+        left: leftPos,
         top: undefined,
         bottom: window.innerHeight - top - window.scrollY,
         isAbove: false,
       };
     } else {
       return {
-        left: left + window.scrollX,
+        left: leftPos,
         top: bottom + window.scrollY,
         bottom: undefined,
         isAbove: true,
@@ -380,7 +383,13 @@ class BlockMenu extends React.Component<Props, State> {
   }
 
   get filtered() {
-    const { dictionary, embeds, search = "", uploadImage } = this.props;
+    const {
+      dictionary,
+      embeds,
+      search = "",
+      uploadImage,
+      commands,
+    } = this.props;
     let items: (EmbedDescriptor | MenuItem)[] = getMenuItems(dictionary);
     const embedItems: EmbedDescriptor[] = [];
 
@@ -402,6 +411,15 @@ class BlockMenu extends React.Component<Props, State> {
 
     const filtered = items.filter(item => {
       if (item.name === "separator") return true;
+
+      // Some extensions may be disabled, remove corresponding menu items
+      if (
+        item.name &&
+        !commands[item.name] &&
+        !commands[`create${capitalize(item.name)}`]
+      ) {
+        return false;
+      }
 
       // If no image upload callback has been passed, filter the image block out
       if (!uploadImage && item.name === "image") return false;
