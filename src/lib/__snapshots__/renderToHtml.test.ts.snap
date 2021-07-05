@@ -81,6 +81,18 @@ exports[`renders ordered list 2`] = `
 
 exports[`renders plain text as paragraph 1`] = `"<p>plain text</p>"`;
 
+exports[`renders spoiler 1`] = `
+"<div class=\\"spoiler-block\\">
+<p>Hello world spoiler</p>
+<p>Spoiler hidden body</p>
+<h1>Heading</h1>
+<ul>
+<li>Item 1</li>
+<li>Item 2</li>
+</ul>
+</div>"
+`;
+
 exports[`renders table 1`] = `
 "<table>
 <tr>

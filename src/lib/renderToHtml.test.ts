@@ -152,3 +152,18 @@ test("renders ordered list", () => {
 2. item two`)
   ).toMatchSnapshot();
 });
+
+test("renders spoiler", () => {
+  expect(
+    renderToHtml(`!!!
+Hello world spoiler
+
+Spoiler hidden body
+
+# Heading
+
+- Item 1
+- Item 2 
+!!!`)
+  ).toMatchSnapshot();
+});

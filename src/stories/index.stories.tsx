@@ -235,12 +235,19 @@ Hello world spoiler
 };
 
 export const SpoilerReadOnly = Template.bind({});
-Spoiler.args = {
+SpoilerReadOnly.args = {
   readOnly: true,
   defaultValue: `# Spoiler
 \\
 !!!
 Hello world spoiler
+
+Spoiler hidden body
+
+# Heading
+
+- Item 1
+- Item 2 
 !!!
 `,
 };

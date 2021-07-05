@@ -24,6 +24,7 @@ import Table from "./nodes/Table";
 import TableCell from "./nodes/TableCell";
 import TableHeadCell from "./nodes/TableHeadCell";
 import TableRow from "./nodes/TableRow";
+import Spoiler from "./nodes/Spoiler";
 
 // marks
 import Bold from "./marks/Bold";
@@ -65,6 +66,7 @@ const extensions = new ExtensionManager([
   new TemplatePlaceholder(),
   new Underline(),
   new OrderedList(),
+  new Spoiler(),
 ]);
 
 export const schema = new Schema({
